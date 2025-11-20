@@ -705,7 +705,7 @@ useEffect(() => {
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
-          setMemberData(docSnap.data());
+          setMemberData({ ...docSnap.data(), uid: user.uid });
         } else {
           const newProfile = { 
             email: user.email, 
@@ -715,7 +715,7 @@ useEffect(() => {
             membershipType: "Regular" 
           };
           await setDoc(docRef, newProfile);
-          setMemberData(newProfile);
+          setMemberData({ ...newProfile, uid: user.uid });
         }
 
       } catch (err) {
@@ -745,7 +745,7 @@ const handleProfileUpdate = (newData) => {
   if (!memberData) return <div className="p-6">Loading profile...</div>;
 
   // Ideally, we view the 'targetUser'. If null, we view the logged-in 'user'.
-  const activeUser = targetUser || user; 
+  const activeUser = targetUser || memberData;
   const isViewingSelf = activeUser.uid === user.uid;
 
   return (
