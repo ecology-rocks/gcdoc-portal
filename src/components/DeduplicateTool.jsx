@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { getFirestore, collection, query, where, getDocs, writeBatch, doc } from "firebase/firestore";
+import { db } from '../firebase';
 
 export default function DeduplicateTool({ user }) {
   const db = getFirestore();

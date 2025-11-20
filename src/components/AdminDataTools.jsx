@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Papa from 'papaparse';
 import { getFirestore, collection, writeBatch, doc, getDocs } from "firebase/firestore";
+import { db} from '../firebase';
 
 export default function AdminDataTools() {
   const db = getFirestore();
