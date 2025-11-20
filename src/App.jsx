@@ -336,8 +336,8 @@ function VolunteerLogs({ user, currentUserRole }) {
         )}
       </form>
 
-      <div className="bg-white rounded shadow overflow-hidden">
-        <table className="w-full text-left">
+      <div className="bg-white rounded shadow overflow-x-auto">
+        <table className="w-full text-left min-w-[600px]">
           <thead className="bg-gray-200">
             <tr>
               <th className="p-3 text-sm font-semibold text-gray-700">Date</th>
