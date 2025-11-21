@@ -10,6 +10,9 @@ import AdminDataTools from './AdminDataTools';
 import AdminMemberSelect from './AdminMemberSelect';
 import DeduplicateTool from './DeduplicateTool';
 import AdminPendingReview from './AdminPendingReview';
+import BulkEntryTool from './BulkEntryTool';
+import SheetArchive from './SheetArchive';
+import Accordion from './Accordion';
 
 export default function Dashboard({ user }) {
   const [memberData, setMemberData] = useState(null);
@@ -151,20 +154,37 @@ const handleProfileUpdate = (newData) => {
 
       {/* ADMIN ONLY: Member Selector */}
       {/* Only show these tools if the user is an admin */}
+{/* ADMIN SECTION */}
       {memberData.role === 'admin' && (
-<div className="mb-8 space-y-6">
+        <div className="mb-12 border-t pt-8">
+          <h2 className="text-2xl font-bold text-gray-800 mb-6">Admin Dashboard</h2>
           
-          {/* 1. PENDING REVIEW (New!) */}
-          <AdminPendingReview />
+          {/* 1. PENDING REVIEW (Open by default if needed, or usually closed) */}
+          <Accordion title="⚠️ Pending Review" color="orange">
+             <AdminPendingReview />
+          </Accordion>
 
-          {/* 2. Export/Import Tools */}
-          <AdminDataTools />
+          {/* 3. HANDWRITTEN SHEETS */}
+          <Accordion title="📝 Bulk Entry (Handwritten Sheets)" color="gray">
+             <BulkEntryTool />
+             <SheetArchive />
+          </Accordion>
+
+          {/* 4. DATA IMPORT/EXPORT */}
+          <Accordion title="💾 Import & Export Data" color="gray">
+             <AdminDataTools />
+          </Accordion>
           
-          {/* 3. Cleanup Tool */}
-          <DeduplicateTool user={user} />
-          
-          {/* 4. Member Selector */}
-          <AdminMemberSelect onSelect={(m) => setTargetUser(m || null)} />
+          {/* 5. CLEANUP TOOLS */}
+          <Accordion title="🧹 Database Cleanup" color="red">
+             <DeduplicateTool user={user} />
+          </Accordion>
+
+          {/* 2. LOG HOURS FOR OTHERS */}
+          <Accordion title="👤 Log Hours for Others" color="blue" defaultOpen={true}>
+             <AdminMemberSelect onSelect={(m) => setTargetUser(m || null)} />
+          </Accordion>
+
         </div>
       )}
       
