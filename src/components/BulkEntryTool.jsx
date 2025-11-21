@@ -176,7 +176,13 @@ const handleSubmitAll = async () => {
             ) : (
               <div className="text-gray-400">No image selected</div>
             )}
-            <input type="file" onChange={handleFileSelect} className="mt-4" accept="image/*" />
+            <input 
+  type="file" 
+  onChange={handleFileSelect} 
+  className="mt-4" 
+  accept="image/*" 
+  capture="environment" 
+/>
           </div>
           
           <div className="space-y-4">
