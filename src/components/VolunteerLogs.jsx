@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { collection, addDoc, query, where, getDocs, doc, deleteDoc, updateDoc } from "firebase/firestore";
-import { db } from '../firebase';
-import { calculateRewards } from '../utils'; // Import helper
+import { collection, addDoc, query, where, getDocs, doc, deleteDoc, updateDoc, arrayUnion } from "firebase/firestore";
+import { db, auth } from '../firebase'; // Import Auth to know WHO is editing
+import { calculateRewards } from '../utils';
 
 export default function VolunteerLogs({ user, currentUserRole }) {
   const [logs, setLogs] = useState([]);
@@ -10,8 +10,10 @@ export default function VolunteerLogs({ user, currentUserRole }) {
   const [activity, setActivity] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
+  
+  // New State for History Viewer
+  const [viewingHistory, setViewingHistory] = useState(null); // Stores the log object to view
 
-  // ... (Previous getCollectionRef and getDocRef helper functions stay here) ...
   const getCollectionRef = () => {
     if (user.type === 'legacy') {
       return collection(db, "legacy_members", user.realId, "legacyLogs");
@@ -44,7 +46,6 @@ export default function VolunteerLogs({ user, currentUserRole }) {
         data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       }
       
-      // Sort by date descending
       data.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
       setLogs(data);
     } catch (err) {
@@ -57,18 +58,15 @@ export default function VolunteerLogs({ user, currentUserRole }) {
     fetchLogs();
   }, [user]);
 
-  // --- NEW FUNCTION: TOGGLE ROLLOVER ---
   const toggleRollover = async (log) => {
     try {
       const newVal = !log.applyToNextYear;
       await updateDoc(getDocRef(log.id), {
         applyToNextYear: newVal
       });
-      // Optimistic UI update (update state immediately so it feels fast)
       setLogs(prev => prev.map(l => l.id === log.id ? { ...l, applyToNextYear: newVal } : l));
     } catch (err) {
-      console.error("Error updating rollover:", err);
-      alert("Failed to update rollover status");
+      alert("Error: " + err.message);
     }
   };
 
@@ -87,19 +85,43 @@ export default function VolunteerLogs({ user, currentUserRole }) {
 
     try {
       if (editingId) {
+         // --- EDIT MODE WITH HISTORY TRACKING ---
+         const logRef = getDocRef(editingId);
          const newStatus = currentUserRole === 'admin' ? 'approved' : 'pending';
-         await updateDoc(getDocRef(editingId), {
-           date, hours: numHours, activity, status: newStatus
+         
+         // 1. Find the original log locally to snapshot it
+         const originalLog = logs.find(l => l.id === editingId);
+         
+         // 2. Create History Entry
+         const historyEntry = {
+            changedAt: new Date().toISOString(),
+            changedBy: auth.currentUser.email, // The person logged in RIGHT NOW
+            oldData: {
+               date: originalLog.date,
+               hours: originalLog.hours,
+               activity: originalLog.activity
+            }
+         };
+
+         // 3. Update Doc with new data AND push to history array
+         await updateDoc(logRef, {
+           date, 
+           hours: numHours, 
+           activity, 
+           status: newStatus,
+           history: arrayUnion(historyEntry) // <--- MAGIC HAPPENS HERE
          });
          setEditingId(null);
       } else {
+         // CREATE MODE
          const newLog = {
            date,
            hours: numHours,
            activity,
            status,
            submittedAt: new Date(),
-           applyToNextYear: false // Default to false
+           applyToNextYear: false,
+           history: [] // Initialize empty history
          };
          
          if (user.type !== 'legacy') {
@@ -156,7 +178,6 @@ export default function VolunteerLogs({ user, currentUserRole }) {
          {editingId ? "Edit Entry" : "Log New Hours"}
       </h3>
       
-      {/* Form (unchanged) */}
       <form onSubmit={handleSubmit} className={`p-4 rounded mb-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-end ${editingId ? 'bg-yellow-50 border border-yellow-400' : 'bg-gray-100'}`}>
         <div>
           <label className="block text-xs font-bold text-gray-600 mb-1">Date</label>
@@ -190,7 +211,6 @@ export default function VolunteerLogs({ user, currentUserRole }) {
               <th className="p-3 text-sm font-semibold text-gray-700">Activity</th>
               <th className="p-3 text-sm font-semibold text-gray-700 text-right">Hours</th>
               <th className="p-3 text-sm font-semibold text-gray-700">Status</th>
-              {/* New Header for Admins */}
               {currentUserRole === 'admin' && <th className="p-3 text-sm font-semibold text-gray-700 text-center">Roll Over</th>}
               <th className="p-3 text-sm font-semibold text-gray-700">Actions</th>
             </tr>
@@ -203,38 +223,79 @@ export default function VolunteerLogs({ user, currentUserRole }) {
             ) : (
               logs.map(log => (
                 <tr key={log.id} className={`border-t hover:bg-gray-50 ${log.applyToNextYear ? 'bg-purple-50' : ''}`}>
-                  <td className="p-3">{log.date}</td>
-                  <td className="p-3">{log.activity}</td>
-                  <td className="p-3 text-right font-mono">{log.hours}</td>
-                  <td className="p-3">
+                   <td className="p-3">{log.date}</td>
+                   <td className="p-3">{log.activity}</td>
+                   <td className="p-3 text-right font-mono">{log.hours}</td>
+                   <td className="p-3">
                     <span className={`text-xs px-2 py-1 rounded-full ${log.status === 'pending' ? 'bg-orange-100 text-orange-800' : 'bg-green-100 text-green-800'}`}>
                       {log.status || 'approved'}
                     </span>
-                  </td>
-                  
-                  {/* Admin Toggle Checkbox */}
-                  {currentUserRole === 'admin' && (
+                   </td>
+                   
+                   {currentUserRole === 'admin' && (
                     <td className="p-3 text-center">
                       <input 
                         type="checkbox" 
                         checked={log.applyToNextYear || false} 
                         onChange={() => toggleRollover(log)}
-                        title="Apply this log to next Fiscal Year"
                         className="cursor-pointer w-4 h-4"
                       />
                     </td>
-                  )}
+                   )}
 
-                  <td className="p-3 text-sm">
+                   <td className="p-3 text-sm whitespace-nowrap flex items-center">
                     <button onClick={() => handleEdit(log)} className="text-blue-600 hover:underline mr-3">Edit</button>
-                    <button onClick={() => handleDelete(log.id)} className="text-red-600 hover:underline">Delete</button>
-                  </td>
+                    <button onClick={() => handleDelete(log.id)} className="text-red-600 hover:underline mr-3">Delete</button>
+                    
+                    {/* HISTORY BUTTON (Only shows if history exists) */}
+                    {log.history && log.history.length > 0 && (
+                      <button 
+                        onClick={() => setViewingHistory(log)} 
+                        className="text-gray-500 hover:text-gray-700 text-xs border border-gray-300 px-2 py-1 rounded bg-gray-50"
+                        title="View Edit History"
+                      >
+                        🕒 History
+                      </button>
+                    )}
+                   </td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
       </div>
+
+      {/* --- HISTORY MODAL --- */}
+      {viewingHistory && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded shadow-lg w-full max-w-md">
+            <div className="flex justify-between items-center mb-4 border-b pb-2">
+              <h3 className="font-bold text-lg">Edit History</h3>
+              <button onClick={() => setViewingHistory(null)} className="text-gray-500 hover:text-gray-800">✕</button>
+            </div>
+            
+            <div className="max-h-[300px] overflow-y-auto space-y-4">
+              {viewingHistory.history.map((entry, i) => (
+                <div key={i} className="text-sm border-l-2 border-gray-300 pl-3">
+                  <p className="text-gray-500 text-xs">
+                    {new Date(entry.changedAt).toLocaleString()} by <span className="font-semibold">{entry.changedBy}</span>
+                  </p>
+                  <div className="mt-1 text-gray-700 bg-gray-50 p-2 rounded">
+                    <p className="font-bold text-xs uppercase text-gray-400 mb-1">Previous Version:</p>
+                    <p>Date: {entry.oldData.date}</p>
+                    <p>Activity: {entry.oldData.activity}</p>
+                    <p>Hours: {entry.oldData.hours}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 text-right">
+              <button onClick={() => setViewingHistory(null)} className="bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
