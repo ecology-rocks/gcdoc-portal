@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { collection, addDoc, query, where, getDocs, doc, deleteDoc, updateDoc, arrayUnion } from "firebase/firestore";
-import { db, auth } from '../firebase'; // Import Auth to know WHO is editing
+import { db, auth } from '../firebase';
 import { calculateRewards } from '../utils';
 
 export default function VolunteerLogs({ user, currentUserRole }) {
@@ -11,9 +11,31 @@ export default function VolunteerLogs({ user, currentUserRole }) {
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
   
-  // New State for History Viewer
-  const [viewingHistory, setViewingHistory] = useState(null); // Stores the log object to view
+  // History Viewer State
+  const [viewingHistory, setViewingHistory] = useState(null);
 
+  // --- HELPERS: DATE FORMATTING ---
+  // Convert "10/24/2025" -> "2025-10-24" for inputs
+  const toInputDate = (str) => {
+    if (!str) return '';
+    if (str.includes('/')) {
+      const [m, d, y] = str.split('/');
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+    return str;
+  };
+
+  // Convert "2025-10-24" -> "10/24/2025" for display
+  const toDisplayDate = (str) => {
+    if (!str) return '';
+    if (str.includes('-')) {
+      const [y, m, d] = str.split('-');
+      return `${m}/${d}/${y}`;
+    }
+    return str;
+  };
+
+  // --- DB REFS ---
   const getCollectionRef = () => {
     if (user.type === 'legacy') {
       return collection(db, "legacy_members", user.realId, "legacyLogs");
@@ -46,6 +68,7 @@ export default function VolunteerLogs({ user, currentUserRole }) {
         data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       }
       
+      // Sort by date descending
       data.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
       setLogs(data);
     } catch (err) {
@@ -64,6 +87,7 @@ export default function VolunteerLogs({ user, currentUserRole }) {
       await updateDoc(getDocRef(log.id), {
         applyToNextYear: newVal
       });
+      // Optimistic UI update
       setLogs(prev => prev.map(l => l.id === log.id ? { ...l, applyToNextYear: newVal } : l));
     } catch (err) {
       alert("Error: " + err.message);
@@ -75,27 +99,39 @@ export default function VolunteerLogs({ user, currentUserRole }) {
     if (!date || !hours || !activity) return;
     
     const numHours = parseFloat(hours);
-    let status = "approved";
+    let status = "approved"; // Default to approved
 
-    if (numHours > 8) {
-      const confirm = window.confirm("You are logging more than 8 hours for a single day. Is this correct?");
+    // --- SAFETY CHECK: DAILY TOTAL ---
+    // 1. Sum existing logs for this date (excluding the one being edited)
+    const existingLogsForDate = logs.filter(l => 
+      (l.date === date || toInputDate(l.date) === date) && l.id !== editingId
+    );
+
+    const dailySum = existingLogsForDate.reduce((sum, l) => sum + (parseFloat(l.hours) || 0), 0);
+    const newDailyTotal = dailySum + numHours;
+
+    // 2. If Total > 8, Flag it. 
+    // (If Total <= 8, we skip this, so status stays "approved")
+    if (newDailyTotal > 8) {
+      const confirm = window.confirm(
+        `Total hours for ${date} will be ${newDailyTotal} hours.\n(Existing: ${dailySum} + New: ${numHours})\n\nThis exceeds the 8-hour daily standard. Is this correct?`
+      );
       if (!confirm) return;
       status = "pending"; 
     }
 
     try {
       if (editingId) {
-         // --- EDIT MODE WITH HISTORY TRACKING ---
+         // --- EDIT MODE ---
          const logRef = getDocRef(editingId);
-         const newStatus = currentUserRole === 'admin' ? 'approved' : 'pending';
+         // Admin edits are always approved; Members are subject to the check above
+         const newStatus = currentUserRole === 'admin' ? 'approved' : status;
          
-         // 1. Find the original log locally to snapshot it
+         // Snapshot for History
          const originalLog = logs.find(l => l.id === editingId);
-         
-         // 2. Create History Entry
          const historyEntry = {
             changedAt: new Date().toISOString(),
-            changedBy: auth.currentUser.email, // The person logged in RIGHT NOW
+            changedBy: auth.currentUser.email,
             oldData: {
                date: originalLog.date,
                hours: originalLog.hours,
@@ -103,25 +139,26 @@ export default function VolunteerLogs({ user, currentUserRole }) {
             }
          };
 
-         // 3. Update Doc with new data AND push to history array
          await updateDoc(logRef, {
            date, 
            hours: numHours, 
            activity, 
            status: newStatus,
-           history: arrayUnion(historyEntry) // <--- MAGIC HAPPENS HERE
+           history: arrayUnion(historyEntry)
          });
          setEditingId(null);
       } else {
-         // CREATE MODE
+         // --- CREATE MODE ---
+         const finalStatus = currentUserRole === 'admin' ? 'approved' : status;
+
          const newLog = {
            date,
            hours: numHours,
            activity,
-           status,
+           status: finalStatus,
            submittedAt: new Date(),
            applyToNextYear: false,
-           history: [] // Initialize empty history
+           history: []
          };
          
          if (user.type !== 'legacy') {
@@ -140,7 +177,7 @@ export default function VolunteerLogs({ user, currentUserRole }) {
   };
 
   const handleEdit = (log) => {
-    setDate(log.date);
+    setDate(toInputDate(log.date)); // Fix date picker format
     setHours(log.hours);
     setActivity(log.activity);
     setEditingId(log.id);
@@ -178,6 +215,7 @@ export default function VolunteerLogs({ user, currentUserRole }) {
          {editingId ? "Edit Entry" : "Log New Hours"}
       </h3>
       
+      {/* Form */}
       <form onSubmit={handleSubmit} className={`p-4 rounded mb-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-end ${editingId ? 'bg-yellow-50 border border-yellow-400' : 'bg-gray-100'}`}>
         <div>
           <label className="block text-xs font-bold text-gray-600 mb-1">Date</label>
@@ -203,6 +241,7 @@ export default function VolunteerLogs({ user, currentUserRole }) {
         )}
       </form>
 
+      {/* Table with Mobile Scroll & History & Formatted Dates */}
       <div className="bg-white rounded shadow overflow-x-auto">
         <table className="w-full text-left min-w-[600px]">
           <thead className="bg-gray-200">
@@ -223,7 +262,7 @@ export default function VolunteerLogs({ user, currentUserRole }) {
             ) : (
               logs.map(log => (
                 <tr key={log.id} className={`border-t hover:bg-gray-50 ${log.applyToNextYear ? 'bg-purple-50' : ''}`}>
-                   <td className="p-3">{log.date}</td>
+                   <td className="p-3">{toDisplayDate(log.date)}</td>
                    <td className="p-3">{log.activity}</td>
                    <td className="p-3 text-right font-mono">{log.hours}</td>
                    <td className="p-3">
@@ -246,8 +285,6 @@ export default function VolunteerLogs({ user, currentUserRole }) {
                    <td className="p-3 text-sm whitespace-nowrap flex items-center">
                     <button onClick={() => handleEdit(log)} className="text-blue-600 hover:underline mr-3">Edit</button>
                     <button onClick={() => handleDelete(log.id)} className="text-red-600 hover:underline mr-3">Delete</button>
-                    
-                    {/* HISTORY BUTTON (Only shows if history exists) */}
                     {log.history && log.history.length > 0 && (
                       <button 
                         onClick={() => setViewingHistory(log)} 
@@ -265,7 +302,7 @@ export default function VolunteerLogs({ user, currentUserRole }) {
         </table>
       </div>
 
-      {/* --- HISTORY MODAL --- */}
+      {/* History Modal */}
       {viewingHistory && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded shadow-lg w-full max-w-md">
@@ -275,7 +312,7 @@ export default function VolunteerLogs({ user, currentUserRole }) {
             </div>
             
             <div className="max-h-[300px] overflow-y-auto space-y-4">
-              {viewingHistory.history.map((entry, i) => (
+              {viewingHistory.history.slice().reverse().map((entry, i) => (
                 <div key={i} className="text-sm border-l-2 border-gray-300 pl-3">
                   <p className="text-gray-500 text-xs">
                     {new Date(entry.changedAt).toLocaleString()} by <span className="font-semibold">{entry.changedBy}</span>
@@ -289,7 +326,6 @@ export default function VolunteerLogs({ user, currentUserRole }) {
                 </div>
               ))}
             </div>
-
             <div className="mt-4 text-right">
               <button onClick={() => setViewingHistory(null)} className="bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300">Close</button>
             </div>

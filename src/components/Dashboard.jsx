@@ -9,6 +9,7 @@ import ProfileEditor from './ProfileEditor';
 import AdminDataTools from './AdminDataTools';
 import AdminMemberSelect from './AdminMemberSelect';
 import DeduplicateTool from './DeduplicateTool';
+import AdminPendingReview from './AdminPendingReview';
 
 export default function Dashboard({ user }) {
   const [memberData, setMemberData] = useState(null);
@@ -151,9 +152,18 @@ const handleProfileUpdate = (newData) => {
       {/* ADMIN ONLY: Member Selector */}
       {/* Only show these tools if the user is an admin */}
       {memberData.role === 'admin' && (
-        <div className="mb-8">
-          <AdminDataTools /> 
+<div className="mb-8 space-y-6">
+          
+          {/* 1. PENDING REVIEW (New!) */}
+          <AdminPendingReview />
+
+          {/* 2. Export/Import Tools */}
+          <AdminDataTools />
+          
+          {/* 3. Cleanup Tool */}
           <DeduplicateTool user={user} />
+          
+          {/* 4. Member Selector */}
           <AdminMemberSelect onSelect={(m) => setTargetUser(m || null)} />
         </div>
       )}

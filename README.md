@@ -8,3 +8,6 @@ This is my app to deal with dog club stuff. I'll be working on improvements unti
 ## QOL Improvements
 - DONE: export to CSV of both members and work credits and import from those backup files
 - DONE: separate out the stuff in App.jsx into individual modules, it's a bit long and Gemini doesn't work well in long files. 
+- DONE: Add an Admin Review panel for pending hours
+- DONE: Add a check on pending values and approve them if they are less than 8, even if they were pending before
+- DONE: Add a check to force all values to pending where daily hours > 8 
