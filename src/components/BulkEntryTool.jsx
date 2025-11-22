@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, writeBatch, doc, query, orderBy, limit } from "firebase/firestore";
+import { collection, getDocs, addDoc, writeBatch, doc, query, where, collectionGroup } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from '../firebase';
 
-export default function BulkEntryTool() {
-  const [step, setStep] = useState(1); // 1 = Upload, 2 = Data Entry
+export default function BulkEntryTool({ resumeSheet, onClearResume }) {
+  const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   
   // Sheet Data
@@ -16,37 +16,101 @@ export default function BulkEntryTool() {
   const [members, setMembers] = useState([]);
   const [rows, setRows] = useState([{ memberId: '', hours: '', activity: '' }]);
   
-useEffect(() => {
+  // --- LOAD DATA ON RESUME ---
+  useEffect(() => {
+    if (resumeSheet) {
+      // 1. Load Sheet Info
+      setSheetData({
+        date: resumeSheet.date,
+        event: resumeSheet.event || '',
+        sheetId: resumeSheet.sheetId,
+        imageUrl: resumeSheet.imageUrl
+      });
+      setPreviewUrl(resumeSheet.imageUrl);
+      
+      // 2. Fetch Existing Logs for this Sheet
+      const loadExistingLogs = async () => {
+        setLoading(true);
+        try {
+          const existingRows = [];
+
+          // A. Fetch Active Logs
+          const qActive = query(collection(db, "logs"), where("sourceSheetId", "==", resumeSheet.sheetId));
+          const snapActive = await getDocs(qActive);
+          snapActive.forEach(d => {
+            const data = d.data();
+            existingRows.push({
+              logPath: `logs/${d.id}`, // Store path for updates
+              memberId: data.memberId,
+              hours: data.hours,
+              activity: data.activity,
+              isExisting: true // Flag to lock dropdown
+            });
+          });
+
+          // B. Fetch Legacy Logs (Collection Group)
+          const qLegacy = query(collectionGroup(db, "legacyLogs"), where("sourceSheetId", "==", resumeSheet.sheetId));
+          const snapLegacy = await getDocs(qLegacy);
+          
+          // For legacy, we need to find the parent Member ID from the ref path
+          // Path looks like: legacy_members/{MEMBER_ID}/legacyLogs/{LOG_ID}
+          snapLegacy.forEach(d => {
+            const data = d.data();
+            const parentPath = d.ref.parent.parent; // legacy_members/{id}
+            const legacyMemberId = parentPath ? parentPath.id : "";
+            
+            existingRows.push({
+              logPath: d.ref.path, // Store full path for updates
+              memberId: legacyMemberId,
+              hours: data.hours,
+              activity: data.activity,
+              isExisting: true
+            });
+          });
+
+          // C. Set Rows (Append an empty one at the end for convenience)
+          if (existingRows.length > 0) {
+             setRows([...existingRows, { memberId: '', hours: '', activity: resumeSheet.event || '' }]);
+          } else {
+             setRows([{ memberId: '', hours: '', activity: resumeSheet.event || '' }]);
+          }
+
+          setStep(2);
+        } catch (err) {
+          console.error(err);
+          alert("Error loading existing entries: " + err.message);
+        }
+        setLoading(false);
+      };
+
+      loadExistingLogs();
+    }
+  }, [resumeSheet]);
+
+  // --- LOAD MEMBER LIST ---
+  useEffect(() => {
     const fetchMembers = async () => {
       setLoading(true);
       const allMembers = [];
-
-      // 1. Fetch Active Members
+      // 1. Active
       const activeSnap = await getDocs(collection(db, "members"));
-      activeSnap.forEach(d => {
-        allMembers.push({
+      activeSnap.forEach(d => allMembers.push({
           id: d.id,
           name: `${d.data().lastName}, ${d.data().firstName}`,
-          type: 'active' // Mark as active
-        });
-      });
-
-      // 2. Fetch Legacy Members
+          type: 'active'
+      }));
+      // 2. Legacy
       const legacySnap = await getDocs(collection(db, "legacy_members"));
       legacySnap.forEach(d => {
-        // Only add if they have a name (skip empties)
         if (d.data().lastName) {
           allMembers.push({
             id: d.id,
             name: `${d.data().lastName}, ${d.data().firstName} (Legacy)`,
-            type: 'legacy' // Mark as legacy
+            type: 'legacy'
           });
         }
       });
-
-      // 3. Sort Alphabetically
       allMembers.sort((a, b) => a.name.localeCompare(b.name));
-      
       setMembers(allMembers);
       setLoading(false);
     };
@@ -57,7 +121,6 @@ useEffect(() => {
     if (e.target.files[0]) {
       setFile(e.target.files[0]);
       setPreviewUrl(URL.createObjectURL(e.target.files[0]));
-      // Generate a random 4-digit ID for the physical paper
       const shortId = Math.floor(1000 + Math.random() * 9000);
       setSheetData(prev => ({ ...prev, sheetId: `#${shortId}` }));
     }
@@ -68,12 +131,10 @@ useEffect(() => {
     setLoading(true);
     
     try {
-      // 1. Upload Image
       const storageRef = ref(storage, `sheets/${sheetData.date}_${sheetData.sheetId}`);
       await uploadBytes(storageRef, file);
       const url = await getDownloadURL(storageRef);
       
-      // 2. Create Sheet Record
       await addDoc(collection(db, "volunteer_sheets"), {
         ...sheetData,
         imageUrl: url,
@@ -82,7 +143,7 @@ useEffect(() => {
       });
 
       setSheetData(prev => ({ ...prev, imageUrl: url }));
-      setStep(2); // Move to grid view
+      setStep(2);
     } catch (err) {
       console.error(err);
       alert("Error uploading sheet: " + err.message);
@@ -90,7 +151,6 @@ useEffect(() => {
     setLoading(false);
   };
 
-  // --- GRID LOGIC ---
   const updateRow = (index, field, value) => {
     const newRows = [...rows];
     newRows[index][field] = value;
@@ -98,76 +158,94 @@ useEffect(() => {
   };
 
   const addRow = () => {
-    setRows([...rows, { memberId: '', hours: '', activity: sheetData.event || '' }]); // Auto-fill activity
+    setRows([...rows, { memberId: '', hours: '', activity: sheetData.event || '' }]);
   };
 
   const removeRow = (index) => {
+    // If removing an existing row, we should warn them that "Submit" won't delete it from DB
+    // For simplicity in this tool, we just remove it from the VIEW. 
+    // To delete, they should use the main log viewer.
     setRows(rows.filter((_, i) => i !== index));
   };
 
-const handleSubmitAll = async () => {
-    if (!window.confirm(`Ready to submit ${rows.length} entries?`)) return;
+  const handleCancel = () => {
+    setStep(1);
+    setFile(null);
+    setPreviewUrl(null);
+    setSheetData({ date: '', event: '', sheetId: '' });
+    setRows([{ memberId: '', hours: '', activity: '' }]);
+    if (onClearResume) onClearResume(); 
+  };
+
+  const handleSubmitAll = async () => {
+    // Filter out empty rows
+    const validRows = rows.filter(r => r.memberId && r.hours);
+    if (validRows.length === 0) return;
+
+    if (!window.confirm(`Ready to save changes to ${validRows.length} entries?`)) return;
     setLoading(true);
     
     const batch = writeBatch(db);
+    let updateCount = 0;
+    let createCount = 0;
     
-    rows.forEach(row => {
-      if (!row.memberId || !row.hours) return; // Skip incomplete
-      
-      // Find the member info to know if they are Active or Legacy
-      const memberInfo = members.find(m => m.id === row.memberId);
-      if (!memberInfo) return;
-
-      let logRef;
-
-      if (memberInfo.type === 'legacy') {
-        // ROUTE 1: Legacy Member -> Subcollection
-        // db/legacy_members/{id}/legacyLogs/{newLogID}
-        logRef = doc(collection(db, "legacy_members", row.memberId, "legacyLogs"));
-        
-        batch.set(logRef, {
+    validRows.forEach(row => {
+      // CASE 1: EXISTING ROW -> UPDATE
+      if (row.isExisting && row.logPath) {
+        const logRef = doc(db, row.logPath);
+        batch.update(logRef, {
           date: sheetData.date,
           activity: row.activity,
-          hours: parseFloat(row.hours),
-          status: "approved", 
-          sourceSheetId: sheetData.sheetId,
-          importedAt: new Date(),
-          applyToNextYear: false
+          hours: parseFloat(row.hours)
         });
-      } else {
-        // ROUTE 2: Active Member -> Main Collection
-        // db/logs/{newLogID}
-        logRef = doc(collection(db, "logs"));
-        
-        batch.set(logRef, {
-          memberId: row.memberId,
-          date: sheetData.date,
-          activity: row.activity,
-          hours: parseFloat(row.hours),
-          status: "approved",
-          submittedAt: new Date(),
-          sourceSheetId: sheetData.sheetId,
-          applyToNextYear: false
-        });
+        updateCount++;
+      } 
+      // CASE 2: NEW ROW -> CREATE
+      else {
+        const memberInfo = members.find(m => m.id === row.memberId);
+        if (!memberInfo) return;
+
+        let logRef;
+        if (memberInfo.type === 'legacy') {
+          logRef = doc(collection(db, "legacy_members", row.memberId, "legacyLogs"));
+          batch.set(logRef, {
+            date: sheetData.date,
+            activity: row.activity,
+            hours: parseFloat(row.hours),
+            status: "approved", 
+            sourceSheetId: sheetData.sheetId,
+            importedAt: new Date(),
+            applyToNextYear: false
+          });
+        } else {
+          logRef = doc(collection(db, "logs"));
+          batch.set(logRef, {
+            memberId: row.memberId,
+            date: sheetData.date,
+            activity: row.activity,
+            hours: parseFloat(row.hours),
+            status: "approved",
+            submittedAt: new Date(),
+            sourceSheetId: sheetData.sheetId,
+            applyToNextYear: false
+          });
+        }
+        createCount++;
       }
     });
 
     await batch.commit();
-    alert("Success! All entries logged.");
-    
-    // Reset Form
-    setStep(1);
-    setFile(null);
-    setPreviewUrl(null);
-    setRows([{ memberId: '', hours: '', activity: '' }]);
+    alert(`Success! Created ${createCount} new entries and updated ${updateCount} existing entries.`);
+    handleCancel();
     setLoading(false);
   };
 
   return (
     <div className="p-6 bg-white rounded shadow mb-8 border border-gray-200">
-      <h2 className="text-xl font-bold mb-4 text-gray-800">Bulk Entry Tool (Handwritten Sheets)</h2>
+      <h2 className="text-xl font-bold mb-4 text-gray-800">
+        {resumeSheet ? `Resuming Entry for Sheet ${sheetData.sheetId}` : "Bulk Entry Tool (Handwritten Sheets)"}
+      </h2>
 
-      {/* STEP 1: UPLOAD */}
       {step === 1 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="border-2 border-dashed border-gray-300 rounded p-8 text-center bg-gray-50">
@@ -176,13 +254,7 @@ const handleSubmitAll = async () => {
             ) : (
               <div className="text-gray-400">No image selected</div>
             )}
-            <input 
-  type="file" 
-  onChange={handleFileSelect} 
-  className="mt-4" 
-  accept="image/*" 
-  capture="environment" 
-/>
+            <input type="file" onChange={handleFileSelect} className="mt-4" accept="image/*" capture="environment" />
           </div>
           
           <div className="space-y-4">
@@ -215,35 +287,53 @@ const handleSubmitAll = async () => {
         </div>
       )}
 
-      {/* STEP 2: DATA ENTRY */}
+{/* STEP 2: DATA ENTRY (LANDSCAPE MODE) */}
       {step === 2 && (
-        <div className="flex flex-col md:flex-row gap-6 h-[600px]">
-          {/* Left Pane: Image Reference */}
-          <div className="w-full md:w-1/3 bg-gray-900 rounded flex items-center justify-center overflow-hidden relative group">
-             <img src={sheetData.imageUrl} alt="Sheet" className="max-w-full max-h-full object-contain" />
-             <a href={sheetData.imageUrl} target="_blank" rel="noreferrer" className="absolute bottom-4 right-4 bg-white px-3 py-1 rounded text-xs font-bold shadow">Open Full Size</a>
+        <div className="flex flex-col gap-6">
+          
+          {/* Top Pane: Image Reference (Landscape) */}
+          <div className="w-full h-[400px] bg-gray-900 rounded flex items-center justify-center overflow-hidden relative group shrink-0">
+             <img 
+               src={previewUrl} 
+               alt="Sheet" 
+               className="w-full h-full object-contain" 
+             />
+             <div className="absolute bottom-4 right-4 flex gap-2">
+                <a 
+                  href={previewUrl} 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  className="bg-white px-3 py-1 rounded text-xs font-bold shadow hover:bg-gray-100"
+                >
+                  Open Full Size
+                </a>
+             </div>
           </div>
 
-          {/* Right Pane: Grid */}
-          <div className="w-full md:w-2/3 flex flex-col">
-            <div className="flex-1 overflow-y-auto">
+          {/* Bottom Pane: Grid */}
+          <div className="w-full flex flex-col bg-white border rounded p-4 shadow-sm">
+            <h3 className="font-bold text-gray-700 mb-2">Log Entries</h3>
+            
+            {/* Scrollable Table Area */}
+            <div className="max-h-[500px] overflow-y-auto border rounded">
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-100 sticky top-0 z-10">
                   <tr>
                     <th className="p-2">Member</th>
-                    <th className="p-2 w-20">Hours</th>
+                    <th className="p-2 w-24">Hours</th>
                     <th className="p-2">Activity</th>
-                    <th className="p-2 w-10"></th>
+                    <th className="p-2 w-12"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((row, i) => (
-                    <tr key={i} className="border-b">
+                    <tr key={i} className={`border-b ${row.isExisting ? 'bg-gray-50' : ''}`}>
                       <td className="p-2">
                         <select 
-                          className="w-full p-1 border rounded bg-white"
+                          className="w-full p-2 border rounded bg-white disabled:bg-gray-100 disabled:text-gray-500"
                           value={row.memberId}
                           onChange={e => updateRow(i, 'memberId', e.target.value)}
+                          disabled={row.isExisting} 
                         >
                           <option value="">Select Member...</option>
                           {members.map(m => (
@@ -252,28 +342,58 @@ const handleSubmitAll = async () => {
                         </select>
                       </td>
                       <td className="p-2">
-                        <input type="number" className="w-full p-1 border rounded" 
-                          value={row.hours} onChange={e => updateRow(i, 'hours', e.target.value)} />
+                        <input 
+                          type="number" 
+                          className="w-full p-2 border rounded" 
+                          value={row.hours} 
+                          onChange={e => updateRow(i, 'hours', e.target.value)} 
+                        />
                       </td>
                       <td className="p-2">
-                        <input type="text" className="w-full p-1 border rounded" 
-                          value={row.activity} onChange={e => updateRow(i, 'activity', e.target.value)} />
+                        <input 
+                          type="text" 
+                          className="w-full p-2 border rounded" 
+                          value={row.activity} 
+                          onChange={e => updateRow(i, 'activity', e.target.value)} 
+                        />
                       </td>
                       <td className="p-2 text-center">
-                        <button onClick={() => removeRow(i)} className="text-red-500 hover:text-red-700">×</button>
+                        <button 
+                          onClick={() => removeRow(i)} 
+                          className="text-red-500 hover:text-red-700 font-bold text-lg px-2"
+                        >
+                          ×
+                        </button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <button onClick={addRow} className="mt-2 text-blue-600 text-sm font-bold hover:underline">+ Add Row</button>
             </div>
+            
+            <button 
+              onClick={addRow} 
+              className="mt-2 text-blue-600 text-sm font-bold hover:underline self-start"
+            >
+              + Add Row
+            </button>
 
-            <div className="pt-4 border-t mt-4 flex justify-between">
-               <button onClick={() => setStep(1)} className="text-gray-500">Cancel</button>
-               <button onClick={handleSubmitAll} disabled={loading} className="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700">
-                 {loading ? "Saving..." : `Submit ${rows.length} Entries`}
+            <div className="pt-4 border-t mt-4 flex justify-between items-center">
+               <button onClick={handleCancel} className="text-gray-500 px-4 py-2 hover:bg-gray-100 rounded">
+                 Cancel
                </button>
+               <div className="text-right">
+                 <p className="text-xs text-gray-400 mb-1 mr-1">
+                   {rows.filter(r => r.memberId && r.hours).length} valid entries
+                 </p>
+                 <button 
+                   onClick={handleSubmitAll} 
+                   disabled={loading} 
+                   className="bg-green-600 text-white px-8 py-3 rounded font-bold hover:bg-green-700 shadow"
+                 >
+                   {loading ? "Saving..." : `Submit Changes`}
+                 </button>
+               </div>
             </div>
           </div>
         </div>

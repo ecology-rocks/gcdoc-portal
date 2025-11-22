@@ -3,7 +3,7 @@ import { collection, query, orderBy, getDocs, deleteDoc, doc, where, writeBatch,
 import { ref, deleteObject } from "firebase/storage";
 import { db, storage } from '../firebase';
 
-export default function SheetArchive() {
+export default function SheetArchive({ onResume }) {
   const [sheets, setSheets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
@@ -23,8 +23,8 @@ export default function SheetArchive() {
   }, []);
 
   const handleFullDelete = async (sheet) => {
-    if(!window.confirm(`WARNING: This will delete the sheet record AND remove all hours logged using this sheet ID (${sheet.sheetId}).\n\nAre you sure?`)) return;
-    
+    if (!window.confirm(`WARNING: This will delete the sheet record AND remove all hours logged using this sheet ID (${sheet.sheetId}).\n\nAre you sure?`)) return;
+
     setDeletingId(sheet.id);
     try {
       const batch = writeBatch(db);
@@ -86,14 +86,14 @@ export default function SheetArchive() {
   return (
     <div className="mt-4">
       <h3 className="text-xl font-bold mb-4 text-gray-800">📂 Sheet Archive</h3>
-      
+
       {sheets.length === 0 ? (
         <p className="text-gray-500 italic">No physical sheets uploaded yet.</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {sheets.map(sheet => (
             <div key={sheet.id} className="border border-gray-200 rounded bg-white shadow-sm flex flex-col p-4 relative">
-              
+
               <div className="flex justify-between items-start mb-2">
                 <span className="bg-yellow-100 text-yellow-800 text-lg font-mono font-bold px-2 py-1 rounded border border-yellow-200">
                   {sheet.sheetId || "N/A"}
@@ -102,19 +102,26 @@ export default function SheetArchive() {
 
               <p className="font-bold text-gray-800 text-sm truncate">{sheet.event || "Unnamed Event"}</p>
               <p className="text-xs text-gray-500 mb-4">{sheet.date}</p>
-              
+
               <div className="flex gap-2 mt-auto">
-                <a 
-                  href={sheet.imageUrl} 
-                  target="_blank" 
-                  rel="noreferrer" 
+                <a
+                  href={sheet.imageUrl}
+                  target="_blank"
+                  rel="noreferrer"
                   className="flex-1 text-center bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs font-bold py-2 rounded border border-blue-200"
                 >
                   View Sheet
                 </a>
-                
-                <button 
-                  onClick={() => handleFullDelete(sheet)} 
+
+                <button
+                  onClick={() => onResume(sheet)}
+                  className="flex-1 bg-green-50 text-green-600 hover:bg-green-100 text-xs font-bold py-2 rounded border border-green-200"
+                >
+                  Resume
+                </button>
+
+                <button
+                  onClick={() => handleFullDelete(sheet)}
                   disabled={deletingId === sheet.id}
                   className="flex-1 bg-red-50 text-red-600 hover:bg-red-100 text-xs font-bold py-2 rounded border border-red-200"
                 >

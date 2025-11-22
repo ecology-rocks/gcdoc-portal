@@ -19,6 +19,7 @@ export default function Dashboard({ user }) {
   const [targetUser, setTargetUser] = useState(null); // Who are we viewing?
   const [isEditing, setIsEditing] = useState(false);
   const [error, setError] = useState(null);
+  const [resumeSheet, setResumeSheet] = useState(null);
 
 useEffect(() => {
     const syncProfile = async () => {
@@ -165,10 +166,13 @@ const handleProfileUpdate = (newData) => {
           </Accordion>
 
           {/* 3. HANDWRITTEN SHEETS */}
-          <Accordion title="📝 Bulk Entry (Handwritten Sheets)" color="gray">
-             <BulkEntryTool />
-             <SheetArchive />
-          </Accordion>
+<Accordion title="📝 Bulk Entry (Handwritten Sheets)" color="gray" defaultOpen={!!resumeSheet}>
+    <BulkEntryTool 
+      resumeSheet={resumeSheet} 
+      onClearResume={() => setResumeSheet(null)} 
+    />
+    <SheetArchive onResume={setResumeSheet} />
+</Accordion>
 
           {/* 4. DATA IMPORT/EXPORT */}
           <Accordion title="💾 Import & Export Data" color="gray">
