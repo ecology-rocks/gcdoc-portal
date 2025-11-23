@@ -14,5 +14,6 @@ This is my app to deal with dog club stuff. I'll be working on improvements unti
 - DONE: Would like a link on the hours where the hours are linked to a sheet
 - DONE: would like a better search for the members on the hours entry
 - DONE: Put in dues calculations
-- Prep some reports
+- DONE: Prep attendance report
+- Prep a paid/unpaid report? requires research
 - ETL plugin for wordpress to sync to WP platform
