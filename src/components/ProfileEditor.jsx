@@ -13,7 +13,10 @@ export default function ProfileEditor({ targetUser, currentUserRole, onClose, on
     state: targetUser.state || '',
     zip: targetUser.zip || '',
     phone: targetUser.phone || '',
+    joinedDate: targetUser.joinedDate || '',
     cellPhone: targetUser.cellPhone || '',
+    status: targetUser.status || 'Active', // <--- NEW
+    adminNotes: targetUser.adminNotes || '', // <--- NEW
     membershipType: targetUser.membershipType || 'Regular',
     role: targetUser.role || 'member'
   });
@@ -22,12 +25,23 @@ export default function ProfileEditor({ targetUser, currentUserRole, onClose, on
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = async (e) => {
+const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const userRef = doc(db, "members", targetUser.uid);
+      let userRef;
+
+      // 1. Check if we are editing a Legacy (Unregistered) User
+      if (targetUser.type === 'legacy') {
+        // Point to the 'legacy_members' collection using their REAL ID (not the 'LEGACY_' one)
+        userRef = doc(db, "legacy_members", targetUser.realId);
+      } else {
+        // Point to the standard 'members' collection
+        userRef = doc(db, "members", targetUser.uid);
+      }
+
       await updateDoc(userRef, formData);
-      onSave(formData); // Tell parent component to update UI
+      
+      onSave(formData); // Tell the dashboard to update the UI
       onClose();
     } catch (err) {
       console.error(err);
@@ -89,7 +103,48 @@ export default function ProfileEditor({ targetUser, currentUserRole, onClose, on
           <div className="md:col-span-2 border-t pt-4 mt-2">
             <h3 className="font-bold text-sm text-gray-500 mb-2">Membership Details</h3>
           </div>
-          
+          {/* NEW FIELD: JOINED DATE */}
+          <div>
+            <label className="block text-xs font-bold text-gray-600">Joined Year</label>
+            <input 
+              name="joinedDate" 
+              type="number"
+              placeholder="e.g. 1998"
+              value={formData.joinedDate} 
+              onChange={handleChange} 
+              disabled={!isAdmin} // Admin only edit
+              className={`w-full p-2 border rounded ${!isAdmin ? 'bg-gray-100 text-gray-500' : ''}`} 
+            />
+          </div>
+          {/* STATUS & NOTES */}
+          <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 border-b pb-4">
+             <div>
+               <label className="block text-xs font-bold text-gray-600">Member Status</label>
+               <select 
+                 name="status" 
+                 value={formData.status} 
+                 onChange={handleChange} 
+                 disabled={!isAdmin}
+                 className={`w-full p-2 border rounded ${!isAdmin ? 'bg-gray-100 text-gray-500' : 'bg-white'}`}
+               >
+                 <option value="Active">Active</option>
+                 <option value="Inactive">Inactive (Resigned/Moved)</option>
+                 <option value="Deceased">Deceased</option>
+               </select>
+             </div>
+             <div>
+               <label className="block text-xs font-bold text-gray-600">Admin Notes</label>
+               <input 
+                 name="adminNotes" 
+                 type="text"
+                 placeholder="e.g. Passed away Nov 2024"
+                 value={formData.adminNotes} 
+                 onChange={handleChange} 
+                 disabled={!isAdmin}
+                 className={`w-full p-2 border rounded ${!isAdmin ? 'bg-gray-100 text-gray-500' : ''}`}
+               />
+             </div>
+          </div>
           <div>
             <label className="block text-xs font-bold text-gray-600">Membership Type</label>
             <select 
@@ -100,7 +155,8 @@ export default function ProfileEditor({ targetUser, currentUserRole, onClose, on
               className={`w-full p-2 border rounded ${!isAdmin ? 'bg-gray-100 text-gray-500' : ''}`}
             >
               <option value="Regular">Regular</option>
-              <option value="Household">Household</option>
+              <option value="Applicant">Applicant</option>
+              <option value="Family">Family</option>
               <option value="Associate">Associate</option>
               <option value="Lifetime">Lifetime</option>
               <option value="Junior">Junior</option>

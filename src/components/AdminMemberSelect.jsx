@@ -1,18 +1,19 @@
-import { collection, getDocs } from "firebase/firestore";
-import { db } from '../firebase'; // Make sure this is there too!
-import Papa from 'papaparse';
 import React, { useState, useEffect } from 'react';
+import { collection, getDocs } from "firebase/firestore";
+import { db } from '../firebase';
 
 export default function AdminMemberSelect({ onSelect }) {
   const [combinedMembers, setCombinedMembers] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
+  
+  // NEW STATE: Toggle to show/hide inactive people
+  const [showAll, setShowAll] = useState(false); 
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       
-      // 1. Fetch Registered Users
       const membersSnap = await getDocs(collection(db, "members"));
       const registered = membersSnap.docs.map(doc => ({
         uid: doc.id,
@@ -20,7 +21,6 @@ export default function AdminMemberSelect({ onSelect }) {
         ...doc.data()
       }));
 
-      // 2. Fetch Legacy Users
       const legacySnap = await getDocs(collection(db, "legacy_members"));
       const legacy = legacySnap.docs.map(doc => ({
         uid: "LEGACY_" + doc.id,
@@ -29,7 +29,6 @@ export default function AdminMemberSelect({ onSelect }) {
         ...doc.data()
       }));
 
-      // 3. Combine and Sort
       const all = [...registered, ...legacy].sort((a, b) => 
         (a.lastName || "").localeCompare(b.lastName || "")
       );
@@ -40,8 +39,12 @@ export default function AdminMemberSelect({ onSelect }) {
     fetchData();
   }, []);
 
-  // Search includes firstName2 and lastName2
   const filteredMembers = combinedMembers.filter(m => {
+    // 1. Check Status
+    // If we are NOT showing all, and the member is NOT active, hide them.
+    if (!showAll && m.status && m.status !== 'Active') return false;
+
+    // 2. Check Search Term
     const search = searchTerm.toLowerCase();
     const fullString = `${m.firstName} ${m.lastName} ${m.firstName2 || ''} ${m.lastName2 || ''} ${m.email}`.toLowerCase();
     return fullString.includes(search);
@@ -55,13 +58,26 @@ export default function AdminMemberSelect({ onSelect }) {
       
       {loading ? <p className="text-sm text-blue-600">Loading member list...</p> : (
         <div>
-          <input 
-            type="text"
-            placeholder="Search by Name (First, Last, or Spouse)..."
-            className="w-full p-2 mb-2 border rounded border-blue-300 focus:outline-none focus:border-blue-500"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+          {/* CONTROLS ROW */}
+          <div className="flex flex-col md:flex-row gap-2 mb-2">
+            <input 
+              type="text"
+              placeholder="Search by Name..."
+              className="flex-1 p-2 border rounded border-blue-300 focus:outline-none focus:border-blue-500"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            
+            {/* NEW CHECKBOX */}
+            <label className="flex items-center gap-2 text-xs font-bold text-blue-800 cursor-pointer bg-white px-3 border border-blue-200 rounded hover:bg-blue-50">
+              <input 
+                type="checkbox" 
+                checked={showAll}
+                onChange={(e) => setShowAll(e.target.checked)}
+              />
+              Show Inactive
+            </label>
+          </div>
 
           <select 
             className="w-full p-2 border rounded bg-white"
@@ -76,26 +92,24 @@ export default function AdminMemberSelect({ onSelect }) {
             </option>
             
             {filteredMembers.map(m => {
-              // --- NEW DISPLAY LOGIC ---
               let label = `${m.lastName}, ${m.firstName}`;
-              
-              // If there is a second member...
               if (m.firstName2) {
-                // Check if last name is different (and exists)
                 if (m.lastName2 && m.lastName2 !== m.lastName) {
-                   // Format: "Doe, John & Smith, Jane"
                    label += ` & ${m.lastName2}, ${m.firstName2}`;
                 } else {
-                   // Format: "Doe, John & Jane"
                    label += ` & ${m.firstName2}`;
                 }
               }
 
               const status = m.type === 'legacy' ? "(Not Registered)" : "(Active)";
+              const memType = m.membershipType ? `(${m.membershipType})` : "";
+              
+              // VISUAL CUE: If they are Inactive, show it in the name
+              const memberStatus = m.status && m.status !== 'Active' ? `[${m.status.toUpperCase()}]` : "";
               
               return (
-                <option key={m.uid} value={m.uid} className="py-1">
-                  {label} {status}
+                <option key={m.uid} value={m.uid} className={`py-1 ${memberStatus ? 'text-gray-400' : ''}`}>
+                  {memberStatus} {label} {status} {memType}
                 </option>
               );
             })}

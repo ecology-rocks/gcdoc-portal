@@ -25,6 +25,7 @@ export default function AdminDataTools() {
 
 // --- NEW: MEETING REPORT GENERATOR ---
 // --- UPDATED: MEETING REPORT (Separates Applicants) ---
+// --- UPDATED: MEETING REPORT (With Lifetime Eligibility) ---
   const handleMeetingReport = async () => {
     setLoading(true);
     setStatus("Generating report...");
@@ -37,7 +38,7 @@ export default function AdminDataTools() {
       const legacySnap = await getDocs(collection(db, "legacy_members"));
       legacySnap.forEach(d => membersMap.set(d.id, { ...d.data(), type: 'legacy' }));
 
-      // 2. Fetch Logs & Group by Member
+      // 2. Fetch Logs & Group
       const logsByMember = {}; 
       const logsSnap = await getDocs(collection(db, "logs"));
       logsSnap.forEach(doc => {
@@ -57,12 +58,27 @@ export default function AdminDataTools() {
       // 3. Build & Split Data
       const regularData = [];
       const applicantData = [];
+      const currentYear = new Date().getFullYear();
 
       membersMap.forEach((m, id) => {
         const memberLogs = logsByMember[id] || [];
         const stats = calculateRewards(memberLogs, m.membershipType);
+        if (m.status && m.status !== 'Active') return;
+        // --- LIFETIME LOGIC ---
+        const joinedYear = parseInt(m.joinedDate);
+        const yearsMember = currentYear - joinedYear;
+        const isLifetime = (m.membershipType || "").toLowerCase().includes("lifetime");
         
+        let ltSymbol = "";
+        
+        if (isLifetime) {
+          ltSymbol = "LT"; // Already Lifetime
+        } else if (!isNaN(joinedYear) && yearsMember >= 15) {
+          ltSymbol = "*"; // Eligible!
+        }
+
         const row = {
+          ltSymbol: ltSymbol, // <--- NEW FIELD
           name: `${m.lastName}, ${m.firstName}`,
           type: m.membershipType || "Regular",
           hours: stats.totalHours,
@@ -70,7 +86,6 @@ export default function AdminDataTools() {
           dues: stats.membershipStatus, 
         };
 
-        // Check if Applicant
         if ((m.membershipType || "").toLowerCase().includes("applicant")) {
           applicantData.push(row);
         } else {
@@ -78,7 +93,6 @@ export default function AdminDataTools() {
         }
       });
 
-      // Sort Alphabetically
       regularData.sort((a, b) => a.name.localeCompare(b.name));
       applicantData.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -98,7 +112,8 @@ export default function AdminDataTools() {
               th { background-color: #eee; font-weight: bold; }
               .box { width: 15px; height: 15px; border: 1px solid #333; display: inline-block; }
               tr:nth-child(even) { background-color: #f9f9f9; }
-              .applicant-row { background-color: #fffbe6; }
+              .center { text-align: center; }
+              .symbol { font-weight: bold; font-size: 1.2em; }
             </style>
           </head>
           <body>
@@ -108,6 +123,7 @@ export default function AdminDataTools() {
             <table>
               <thead>
                 <tr>
+                  <th style="width: 30px; text-align: center;" title="Lifetime Status">LT</th>
                   <th>Member Name</th>
                   <th>Type</th>
                   <th>Hours (FY)</th>
@@ -119,19 +135,20 @@ export default function AdminDataTools() {
               <tbody>
                 ${regularData.map(r => `
                   <tr>
+                    <td class="center symbol">${r.ltSymbol}</td>
                     <td>${r.name}</td>
                     <td>${r.type}</td>
                     <td>${r.hours}</td>
                     <td>${r.vouchers}</td>
                     <td>${r.dues}</td>
-                    <td style="text-align: center;"><div class="box"></div></td>
+                    <td class="center"><div class="box"></div></td>
                   </tr>
                 `).join('')}
               </tbody>
             </table>
 
             ${applicantData.length > 0 ? `
-              <h2>Applicants (For Voting Eligibility Only)</h2>
+              <h2>Applicants</h2>
               <table>
                 <thead>
                   <tr>
@@ -142,15 +159,15 @@ export default function AdminDataTools() {
                 </thead>
                 <tbody>
                   ${applicantData.map(r => `
-                    <tr class="applicant-row">
+                    <tr style="background-color: #fffbe6;">
                       <td>${r.name}</td>
                       <td>${r.hours}</td>
-                      <td><strong>${r.dues}</strong></td> </tr>
+                      <td><strong>${r.dues}</strong></td>
+                    </tr>
                   `).join('')}
                 </tbody>
               </table>
             ` : ''}
-
           </body>
         </html>
       `);
@@ -165,7 +182,6 @@ export default function AdminDataTools() {
     }
     setLoading(false);
   };
-
 
   // =========================================================================
   // 1. EXPORT FUNCTIONS (Now with IDs for Restore capability)
