@@ -10,6 +10,7 @@ export default function VolunteerLogs({ user, currentUserRole }) {
   const [activity, setActivity] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [sheetPreview, setSheetPreview] = useState(null);
   
   // History Viewer State
   const [viewingHistory, setViewingHistory] = useState(null);
@@ -33,6 +34,23 @@ export default function VolunteerLogs({ user, currentUserRole }) {
       return `${m}/${d}/${y}`;
     }
     return str;
+  };
+
+  const handleViewSheet = async (sheetId) => {
+    try {
+      // Query the volunteer_sheets collection for this specific visual ID (e.g. #4021)
+      const q = query(collection(db, "volunteer_sheets"), where("sheetId", "==", sheetId));
+      const snap = await getDocs(q);
+      
+      if (!snap.empty) {
+        setSheetPreview(snap.docs[0].data());
+      } else {
+        alert("Original sheet record not found (it may have been deleted).");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error fetching sheet: " + err.message);
+    }
   };
 
   // --- DB REFS ---
@@ -285,6 +303,16 @@ export default function VolunteerLogs({ user, currentUserRole }) {
                    <td className="p-3 text-sm whitespace-nowrap flex items-center">
                     <button onClick={() => handleEdit(log)} className="text-blue-600 hover:underline mr-3">Edit</button>
                     <button onClick={() => handleDelete(log.id)} className="text-red-600 hover:underline mr-3">Delete</button>
+                    {/* NEW: SHEET BUTTON (Admin Only) */}
+                    {currentUserRole === 'admin' && log.sourceSheetId && (
+                      <button 
+                        onClick={() => handleViewSheet(log.sourceSheetId)}
+                        className="text-purple-600 hover:text-purple-800 text-xs border border-purple-200 px-2 py-1 rounded bg-purple-50 mr-2"
+                        title={`View Source Sheet ${log.sourceSheetId}`}
+                      >
+                        📄 {log.sourceSheetId}
+                      </button>
+                    )}
                     {log.history && log.history.length > 0 && (
                       <button 
                         onClick={() => setViewingHistory(log)} 
@@ -328,6 +356,38 @@ export default function VolunteerLogs({ user, currentUserRole }) {
             </div>
             <div className="mt-4 text-right">
               <button onClick={() => setViewingHistory(null)} className="bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {/* SHEET PREVIEW MODAL */}
+      {sheetPreview && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded shadow-lg max-w-4xl w-full max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center p-4 border-b">
+              <h3 className="font-bold text-lg">Source Sheet: <span className="font-mono text-purple-700">{sheetPreview.sheetId}</span></h3>
+              <button onClick={() => setSheetPreview(null)} className="text-gray-500 hover:text-red-600 text-2xl font-bold">×</button>
+            </div>
+            
+            <div className="flex-1 bg-gray-100 overflow-auto p-4 flex justify-center">
+               <img 
+                 src={sheetPreview.imageUrl} 
+                 alt="Original Sheet" 
+                 className="max-w-full object-contain shadow border" 
+               />
+            </div>
+            
+            <div className="p-4 border-t text-right bg-gray-50">
+               <a 
+                 href={sheetPreview.imageUrl} 
+                 target="_blank" 
+                 rel="noreferrer"
+                 className="text-blue-600 hover:underline text-sm font-bold"
+               >
+                 Open Full Size in New Tab
+               </a>
             </div>
           </div>
         </div>
