@@ -21,7 +21,7 @@ export default function Dashboard({ user }) {
   const [error, setError] = useState(null);
   const [resumeSheet, setResumeSheet] = useState(null);
 
-useEffect(() => {
+  useEffect(() => {
     const syncProfile = async () => {
       try {
         if (!user) return;
@@ -38,16 +38,16 @@ useEffect(() => {
           // Loop through ALL matching legacy records (handles duplicates)
           for (const legacyDoc of legacySnap.docs) {
             const legacyData = legacyDoc.data();
-            
+
             // Save the profile info from the first one we find
             if (!foundProfileData) foundProfileData = legacyData;
 
             // 1. Move Logs
             const legacyLogsRef = collection(db, "legacy_members", legacyDoc.id, "legacyLogs");
             const legacyLogsSnap = await getDocs(legacyLogsRef);
-            
+
             legacyLogsSnap.forEach(logDoc => {
-              const newLogRef = doc(collection(db, "logs")); 
+              const newLogRef = doc(collection(db, "logs"));
               batch.set(newLogRef, {
                 ...logDoc.data(),
                 memberId: user.uid,
@@ -63,7 +63,7 @@ useEffect(() => {
           // 3. Update the Real Profile
           if (foundProfileData) {
             const profileRef = doc(db, "members", user.uid);
-            
+
             // Remove fields we don't want to overwrite blindly (like the ID or raw logs)
             const { legacyLogs, legacyKey, ...validProfileData } = foundProfileData;
 
@@ -72,7 +72,7 @@ useEffect(() => {
               email: user.email,   // Ensure these stay correct
               uid: user.uid
             }, { merge: true });
-            
+
             // Update local state immediately
             setMemberData({
               ...validProfileData,
@@ -94,12 +94,12 @@ useEffect(() => {
         if (docSnap.exists()) {
           setMemberData({ ...docSnap.data(), uid: user.uid });
         } else {
-          const newProfile = { 
-            email: user.email, 
-            firstName: "New", 
-            lastName: "Member", 
-            role: "member", 
-            membershipType: "Regular" 
+          const newProfile = {
+            email: user.email,
+            firstName: "New",
+            lastName: "Member",
+            role: "member",
+            membershipType: "Regular"
           };
           await setDoc(docRef, newProfile);
           setMemberData({ ...newProfile, uid: user.uid });
@@ -109,7 +109,7 @@ useEffect(() => {
         console.error("Error syncing profile:", err);
         // Only show error if it's NOT a permission error we expect during dev
         if (err.code !== 'permission-denied') {
-             setError(err.message);
+          setError(err.message);
         }
       }
     };
@@ -117,7 +117,7 @@ useEffect(() => {
     syncProfile();
   }, [user]);
 
-const handleProfileUpdate = (newData) => {
+  const handleProfileUpdate = (newData) => {
     // If we are editing the logged-in user, update memberData
     if (activeUser.uid === user.uid) {
       setMemberData({ ...memberData, ...newData });
@@ -141,11 +141,11 @@ const handleProfileUpdate = (newData) => {
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Member Portal</h1>
           <p className="text-gray-500">
-             Logged in as {memberData.firstName} {memberData.lastName} 
-             {memberData.role === 'admin' && <span className="ml-2 bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">ADMIN</span>}
+            Logged in as {memberData.firstName} {memberData.lastName}
+            {memberData.role === 'admin' && <span className="ml-2 bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">ADMIN</span>}
           </p>
         </div>
-        <button 
+        <button
           onClick={() => signOut(auth)}
           className="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300 transition"
         >
@@ -155,111 +155,111 @@ const handleProfileUpdate = (newData) => {
 
       {/* ADMIN ONLY: Member Selector */}
       {/* Only show these tools if the user is an admin */}
-{/* ADMIN SECTION */}
+      {/* ADMIN SECTION */}
       {memberData.role === 'admin' && (
         <div className="mb-12 border-t pt-8">
           <h2 className="text-2xl font-bold text-gray-800 mb-6">Admin Dashboard</h2>
-          
+
           {/* 1. PENDING REVIEW (Open by default if needed, or usually closed) */}
           <Accordion title="⚠️ Pending Review" color="orange">
-             <AdminPendingReview />
+            <AdminPendingReview />
           </Accordion>
 
           {/* 3. HANDWRITTEN SHEETS */}
-<Accordion title="📝 Bulk Entry (Handwritten Sheets)" color="gray" defaultOpen={!!resumeSheet}>
-    <BulkEntryTool 
-      resumeSheet={resumeSheet} 
-      onClearResume={() => setResumeSheet(null)} 
-    />
-    <SheetArchive onResume={setResumeSheet} />
-</Accordion>
+          <Accordion title="📝 Bulk Entry (Handwritten Sheets)" color="gray" defaultOpen={!!resumeSheet}>
+            <BulkEntryTool
+              resumeSheet={resumeSheet}
+              onClearResume={() => setResumeSheet(null)}
+            />
+            <SheetArchive onResume={setResumeSheet} />
+          </Accordion>
 
           {/* 4. DATA IMPORT/EXPORT */}
           <Accordion title="💾 Import & Export Data" color="gray">
-             <AdminDataTools />
+            <AdminDataTools />
           </Accordion>
-          
+
           {/* 5. CLEANUP TOOLS */}
           <Accordion title="🧹 Database Cleanup" color="red">
-             <DeduplicateTool user={user} />
+            <DeduplicateTool user={user} />
           </Accordion>
 
           {/* 2. LOG HOURS FOR OTHERS */}
           <Accordion title="👤 Log Hours for Others" color="blue" defaultOpen={true}>
-             <AdminMemberSelect onSelect={(m) => setTargetUser(m || null)} />
+            <AdminMemberSelect onSelect={(m) => setTargetUser(m || null)} />
           </Accordion>
 
         </div>
       )}
-      
-<div className={`p-6 rounded shadow mb-6 transition-colors relative ${isViewingSelf ? 'bg-white' : 'bg-blue-50 border-2 border-blue-300'}`}>
+
+      <div className={`p-6 rounded shadow mb-6 transition-colors relative ${isViewingSelf ? 'bg-white' : 'bg-blue-50 border-2 border-blue-300'}`}>
         <div className="flex justify-between items-start mb-4">
-           <h2 className="text-xl font-bold text-gray-800">
-             {isViewingSelf ? "My Membership" : `Viewing: ${activeUser.firstName} ${activeUser.lastName}`}
-           </h2>
-           
-           <div className="flex gap-2">
-             {!isViewingSelf && (
-               <button onClick={() => setTargetUser(null)} className="text-sm text-blue-600 underline mr-2">
-                 Back to Me
-               </button>
-             )}
-             <button 
-               onClick={() => setIsEditing(true)}
-               className="bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-bold px-3 py-1 rounded"
-             >
-               Edit Profile
-             </button>
-           </div>
+          <h2 className="text-xl font-bold text-gray-800">
+            {isViewingSelf ? "My Membership" : `Viewing: ${activeUser.firstName} ${activeUser.lastName}`}
+          </h2>
+
+          <div className="flex gap-2">
+            {!isViewingSelf && (
+              <button onClick={() => setTargetUser(null)} className="text-sm text-blue-600 underline mr-2">
+                Back to Me
+              </button>
+            )}
+            <button
+              onClick={() => setIsEditing(true)}
+              className="bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-bold px-3 py-1 rounded"
+            >
+              Edit Profile
+            </button>
+          </div>
         </div>
 
         {/* Detailed Profile View */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-           <div>
-             <label className="block text-xs font-bold text-gray-500 uppercase">Contact</label>
-             <p className="font-semibold">{activeUser.firstName} {activeUser.lastName}</p>
-             <p>{activeUser.email}</p>
-             <p className="mt-1 text-sm text-gray-600">{activeUser.phone || activeUser.cellPhone || "No phone listed"}</p>
-           </div>
-           
-           <div>
-             <label className="block text-xs font-bold text-gray-500 uppercase">Address</label>
-             <p className="text-sm text-gray-800">
-               {activeUser.address ? (
-                 <>
-                   {activeUser.address}<br/>
-                   {activeUser.city}, {activeUser.state} {activeUser.zip}
-                 </>
-               ) : "No address listed"}
-             </p>
-           </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-500 uppercase">Contact</label>
+            <p className="font-semibold">{activeUser.firstName} {activeUser.lastName}</p>
+            <p>{activeUser.email}</p>
+            <p className="mt-1 text-sm text-gray-600">{activeUser.phone || activeUser.cellPhone || "No phone listed"}</p>
+          </div>
 
-           <div>
-             <label className="block text-xs font-bold text-gray-500 uppercase">Status</label>
-             <p><span className="font-bold">Type:</span> {activeUser.membershipType || "Regular"}</p>
-             <p><span className="font-bold">Role:</span> <span className="capitalize">{activeUser.role}</span></p>
-           </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-500 uppercase">Address</label>
+            <p className="text-sm text-gray-800">
+              {activeUser.address ? (
+                <>
+                  {activeUser.address}<br />
+                  {activeUser.city}, {activeUser.state} {activeUser.zip}
+                </>
+              ) : "No address listed"}
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-500 uppercase">Status</label>
+            <p><span className="font-bold">Type:</span> {activeUser.membershipType || "Regular"}</p>
+            <p><span className="font-bold">Role:</span> <span className="capitalize">{activeUser.role}</span></p>
+          </div>
         </div>
       </div>
 
       {/* Render the Editor Modal if isEditing is true */}
       {isEditing && (
-        <ProfileEditor 
-          targetUser={activeUser} 
-          currentUserRole={memberData.role} 
+        <ProfileEditor
+          targetUser={activeUser}
+          currentUserRole={memberData.role}
           onClose={() => setIsEditing(false)}
           onSave={handleProfileUpdate}
         />
       )}
 
       {/* Pass the activeUser to the logs component. It will fetch logs for whoever matches that UID */}
-      
-      <VolunteerLogs 
-  user={activeUser} 
-  key={activeUser.uid} 
-  currentUserRole={memberData.role} 
-/>
-      
+
+      <VolunteerLogs
+        user={activeUser}
+        key={activeUser.uid}
+        currentUserRole={memberData.role}
+      />
+
     </div>
   );
 }

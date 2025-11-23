@@ -11,6 +11,7 @@ export default function BulkEntryTool({ resumeSheet, onClearResume }) {
   const [file, setFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [sheetData, setSheetData] = useState({ date: '', event: '', sheetId: '' });
+  const [uploadSuccess, setUploadSuccess] = useState(false); // <--- NEW
   
   // Entry Data
   const [members, setMembers] = useState([]);
@@ -126,7 +127,17 @@ export default function BulkEntryTool({ resumeSheet, onClearResume }) {
     }
   };
 
-  const handleStartEntry = async () => {
+const resetUpload = () => {
+    setUploadSuccess(false);
+    setFile(null);
+    setPreviewUrl(null);
+    // Generate NEW ID for the next sheet immediately
+    const shortId = Math.floor(1000 + Math.random() * 9000);
+    setSheetData({ date: '', event: '', sheetId: `#${shortId}` });
+  };
+
+
+const handleStartEntry = async () => {
     if (!file || !sheetData.date) return alert("Please select a file and date.");
     setLoading(true);
     
@@ -143,7 +154,8 @@ export default function BulkEntryTool({ resumeSheet, onClearResume }) {
       });
 
       setSheetData(prev => ({ ...prev, imageUrl: url }));
-      setStep(2);
+      // STOP! Don't go to step 2 yet.
+      setUploadSuccess(true); 
     } catch (err) {
       console.error(err);
       alert("Error uploading sheet: " + err.message);
@@ -246,43 +258,80 @@ export default function BulkEntryTool({ resumeSheet, onClearResume }) {
         {resumeSheet ? `Resuming Entry for Sheet ${sheetData.sheetId}` : "Bulk Entry Tool (Handwritten Sheets)"}
       </h2>
 
-      {step === 1 && (
+{step === 1 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div className="border-2 border-dashed border-gray-300 rounded p-8 text-center bg-gray-50">
+          {/* LEFT SIDE: PREVIEW */}
+          <div className="border-2 border-dashed border-gray-300 rounded p-8 text-center bg-gray-50 flex flex-col items-center justify-center">
             {previewUrl ? (
-              <img src={previewUrl} alt="Preview" className="max-h-64 mx-auto border shadow" />
+              <img src={previewUrl} alt="Preview" className="max-h-64 border shadow" />
             ) : (
               <div className="text-gray-400">No image selected</div>
             )}
-            <input type="file" onChange={handleFileSelect} className="mt-4" accept="image/*" capture="environment" />
+            
+            {/* Hide file input if success, so they don't change it by accident */}
+            {!uploadSuccess && (
+               <input type="file" onChange={handleFileSelect} className="mt-4" accept="image/*" capture="environment" />
+            )}
           </div>
           
+          {/* RIGHT SIDE: FORM OR SUCCESS MESSAGE */}
           <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase">Sheet Date</label>
-              <input type="date" className="w-full p-2 border rounded" 
-                onChange={e => setSheetData({...sheetData, date: e.target.value})} />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase">Default Activity Name</label>
-              <input type="text" placeholder="e.g. Agility Trial Set Up" className="w-full p-2 border rounded"
-                onChange={e => setSheetData({...sheetData, event: e.target.value})} />
-            </div>
-            
-            {sheetData.sheetId && (
-              <div className="bg-yellow-50 p-4 border border-yellow-200 rounded text-center">
-                <p className="text-sm text-yellow-800 font-bold">Write this ID on the paper sheet:</p>
-                <p className="text-4xl font-mono font-black text-gray-800 mt-2">{sheetData.sheetId}</p>
+            {uploadSuccess ? (
+              // --- SUCCESS VIEW ---
+              <div className="bg-green-50 border border-green-200 rounded p-6 text-center">
+                <div className="text-4xl mb-2">✅</div>
+                <h3 className="text-xl font-bold text-green-800 mb-2">Sheet Uploaded!</h3>
+                <p className="text-green-700 mb-6">
+                  Reference ID: <span className="font-mono font-black">{sheetData.sheetId}</span>
+                </p>
+                
+                <div className="space-y-3">
+                  <button 
+                    onClick={() => setStep(2)}
+                    className="w-full bg-blue-600 text-white py-3 rounded font-bold hover:bg-blue-700"
+                  >
+                    Continue to Data Entry
+                  </button>
+                  <button 
+                    onClick={resetUpload}
+                    className="w-full bg-white text-gray-700 border border-gray-300 py-3 rounded font-bold hover:bg-gray-50"
+                  >
+                    Upload Another Sheet
+                  </button>
+                </div>
               </div>
-            )}
+            ) : (
+              // --- UPLOAD FORM VIEW ---
+              <>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase">Sheet Date</label>
+                  <input type="date" className="w-full p-2 border rounded" 
+                    value={sheetData.date}
+                    onChange={e => setSheetData({...sheetData, date: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase">Default Activity Name</label>
+                  <input type="text" placeholder="e.g. Agility Trial Set Up" className="w-full p-2 border rounded"
+                    value={sheetData.event}
+                    onChange={e => setSheetData({...sheetData, event: e.target.value})} />
+                </div>
+                
+                {sheetData.sheetId && (
+                  <div className="bg-yellow-50 p-4 border border-yellow-200 rounded text-center">
+                    <p className="text-sm text-yellow-800 font-bold">Write this ID on the paper sheet:</p>
+                    <p className="text-4xl font-mono font-black text-gray-800 mt-2">{sheetData.sheetId}</p>
+                  </div>
+                )}
 
-            <button 
-              onClick={handleStartEntry} 
-              disabled={!file || loading}
-              className="w-full bg-blue-600 text-white py-3 rounded font-bold hover:bg-blue-700 disabled:opacity-50"
-            >
-              {loading ? "Uploading..." : "Start Data Entry →"}
-            </button>
+                <button 
+                  onClick={handleStartEntry} 
+                  disabled={!file || loading}
+                  className="w-full bg-blue-600 text-white py-3 rounded font-bold hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {loading ? "Uploading..." : "Upload Sheet"}
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
