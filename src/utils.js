@@ -34,7 +34,7 @@ export function calculateRewards(logs) {
   }
 
   // 4. Dues Logic (Updated)
-  let membershipStatus = "Standard Dues"; // Default (< 20 hours)
+  let membershipStatus = "Not Yet Eligible"; // Default (< 20 hours)
   
   if (totalHours >= 50) {
     membershipStatus = "$15 (Max Discount)";
