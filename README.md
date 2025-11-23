@@ -9,10 +9,10 @@ This is my app to deal with dog club stuff. I'll be working on improvements unti
 - DONE: Add an Admin Review panel for pending hours
 - DONE: Add a check on pending values and approve them if they are less than 8, even if they were pending before
 - DONE: Add a check to force all values to pending where daily hours > 8 
-- Need a way to just take more pictures vs. X ing out
-- Need a todo/doing/done type thing on the sheet archives
-- Would like a link on the hours where the hours are linked to a sheet
-- would like a better search for the members on the hours entry
-- Put in dues calculations
-- put in a double checkmark
+- DONE: Need a way to just take more pictures vs. X ing out
+- DONE: Need a todo/doing/done type thing on the sheet archives
+- DONE: Would like a link on the hours where the hours are linked to a sheet
+- DONE: would like a better search for the members on the hours entry
+- DONE: Put in dues calculations
+- Prep some reports
 - ETL plugin for wordpress to sync to WP platform
