@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import Papa from 'papaparse';
 import { collection, writeBatch, doc, getDocs, query, where } from "firebase/firestore";
 import { db } from '../firebase';
+import { calculateRewards } from '../utils'; // <--- ADD THIS
 
 export default function AdminDataTools() {
   const [loading, setLoading] = useState(false);
@@ -20,6 +21,151 @@ export default function AdminDataTools() {
     link.click();
     document.body.removeChild(link);
   };
+
+
+// --- NEW: MEETING REPORT GENERATOR ---
+// --- UPDATED: MEETING REPORT (Separates Applicants) ---
+  const handleMeetingReport = async () => {
+    setLoading(true);
+    setStatus("Generating report...");
+    try {
+      // 1. Fetch Members
+      const membersMap = new Map();
+      const activeSnap = await getDocs(collection(db, "members"));
+      activeSnap.forEach(d => membersMap.set(d.id, { ...d.data(), type: 'active' }));
+      
+      const legacySnap = await getDocs(collection(db, "legacy_members"));
+      legacySnap.forEach(d => membersMap.set(d.id, { ...d.data(), type: 'legacy' }));
+
+      // 2. Fetch Logs & Group by Member
+      const logsByMember = {}; 
+      const logsSnap = await getDocs(collection(db, "logs"));
+      logsSnap.forEach(doc => {
+        const d = doc.data();
+        if (!logsByMember[d.memberId]) logsByMember[d.memberId] = [];
+        logsByMember[d.memberId].push(d);
+      });
+
+      const legacyPromises = legacySnap.docs.map(async (memDoc) => {
+        const subLogsSnap = await getDocs(collection(db, "legacy_members", memDoc.id, "legacyLogs"));
+        const mLogs = subLogsSnap.docs.map(l => l.data());
+        if (!logsByMember[memDoc.id]) logsByMember[memDoc.id] = [];
+        logsByMember[memDoc.id].push(...mLogs);
+      });
+      await Promise.all(legacyPromises);
+
+      // 3. Build & Split Data
+      const regularData = [];
+      const applicantData = [];
+
+      membersMap.forEach((m, id) => {
+        const memberLogs = logsByMember[id] || [];
+        const stats = calculateRewards(memberLogs, m.membershipType);
+        
+        const row = {
+          name: `${m.lastName}, ${m.firstName}`,
+          type: m.membershipType || "Regular",
+          hours: stats.totalHours,
+          vouchers: stats.vouchers,
+          dues: stats.membershipStatus, 
+        };
+
+        // Check if Applicant
+        if ((m.membershipType || "").toLowerCase().includes("applicant")) {
+          applicantData.push(row);
+        } else {
+          regularData.push(row);
+        }
+      });
+
+      // Sort Alphabetically
+      regularData.sort((a, b) => a.name.localeCompare(b.name));
+      applicantData.sort((a, b) => a.name.localeCompare(b.name));
+
+      // 4. Generate Print Window
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Meeting Attendance - ${new Date().toLocaleDateString()}</title>
+            <style>
+              body { font-family: sans-serif; padding: 20px; }
+              h1 { text-align: center; margin-bottom: 5px; }
+              h2 { margin-top: 30px; border-bottom: 2px solid #333; padding-bottom: 5px; }
+              .meta { text-align: center; color: #666; margin-bottom: 20px; font-size: 0.9em; }
+              table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px; }
+              th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+              th { background-color: #eee; font-weight: bold; }
+              .box { width: 15px; height: 15px; border: 1px solid #333; display: inline-block; }
+              tr:nth-child(even) { background-color: #f9f9f9; }
+              .applicant-row { background-color: #fffbe6; }
+            </style>
+          </head>
+          <body>
+            <h1>Membership Meeting Attendance</h1>
+            <div class="meta">Generated: ${new Date().toLocaleDateString()}</div>
+            
+            <table>
+              <thead>
+                <tr>
+                  <th>Member Name</th>
+                  <th>Type</th>
+                  <th>Hours (FY)</th>
+                  <th>Vouchers</th>
+                  <th>Dues Status</th>
+                  <th style="text-align: center; width: 60px;">Present</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${regularData.map(r => `
+                  <tr>
+                    <td>${r.name}</td>
+                    <td>${r.type}</td>
+                    <td>${r.hours}</td>
+                    <td>${r.vouchers}</td>
+                    <td>${r.dues}</td>
+                    <td style="text-align: center;"><div class="box"></div></td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+
+            ${applicantData.length > 0 ? `
+              <h2>Applicants (For Voting Eligibility Only)</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Applicant Name</th>
+                    <th>Hours (FY)</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${applicantData.map(r => `
+                    <tr class="applicant-row">
+                      <td>${r.name}</td>
+                      <td>${r.hours}</td>
+                      <td><strong>${r.dues}</strong></td> </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            ` : ''}
+
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => printWindow.print(), 500);
+
+      setStatus("Report generated.");
+    } catch (err) {
+      console.error(err);
+      setStatus("Error: " + err.message);
+    }
+    setLoading(false);
+  };
+
 
   // =========================================================================
   // 1. EXPORT FUNCTIONS (Now with IDs for Restore capability)
@@ -369,6 +515,13 @@ export default function AdminDataTools() {
               className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 text-sm font-bold"
             >
               Work Credits .csv
+            </button>
+            <button 
+              onClick={handleMeetingReport}
+              disabled={loading}
+              className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700 text-sm font-bold"
+            >
+              🖨️ Printable Attendance Sheet
             </button>
           </div>
           <p className="text-xs text-gray-500 mt-2">These files include System IDs and can be re-uploaded to update data.</p>

@@ -208,7 +208,9 @@ export default function VolunteerLogs({ user, currentUserRole }) {
     }
   };
 
-  const stats = calculateRewards(logs);
+// Pass the user's membership type
+const stats = calculateRewards(logs, user.membershipType);
+
 
   return (
     <div className="mt-8">
