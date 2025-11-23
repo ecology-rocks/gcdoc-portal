@@ -6,17 +6,17 @@ import { db, storage } from '../firebase';
 export default function BulkEntryTool({ resumeSheet, onClearResume }) {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
-  
+
   // Sheet Data
   const [file, setFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [sheetData, setSheetData] = useState({ date: '', event: '', sheetId: '' });
   const [uploadSuccess, setUploadSuccess] = useState(false); // <--- NEW
-  
+
   // Entry Data
   const [members, setMembers] = useState([]);
   const [rows, setRows] = useState([{ memberId: '', hours: '', activity: '' }]);
-  
+
   // --- LOAD DATA ON RESUME ---
   useEffect(() => {
     if (resumeSheet) {
@@ -28,7 +28,7 @@ export default function BulkEntryTool({ resumeSheet, onClearResume }) {
         imageUrl: resumeSheet.imageUrl
       });
       setPreviewUrl(resumeSheet.imageUrl);
-      
+
       // 2. Fetch Existing Logs for this Sheet
       const loadExistingLogs = async () => {
         setLoading(true);
@@ -52,14 +52,14 @@ export default function BulkEntryTool({ resumeSheet, onClearResume }) {
           // B. Fetch Legacy Logs (Collection Group)
           const qLegacy = query(collectionGroup(db, "legacyLogs"), where("sourceSheetId", "==", resumeSheet.sheetId));
           const snapLegacy = await getDocs(qLegacy);
-          
+
           // For legacy, we need to find the parent Member ID from the ref path
           // Path looks like: legacy_members/{MEMBER_ID}/legacyLogs/{LOG_ID}
           snapLegacy.forEach(d => {
             const data = d.data();
             const parentPath = d.ref.parent.parent; // legacy_members/{id}
             const legacyMemberId = parentPath ? parentPath.id : "";
-            
+
             existingRows.push({
               logPath: d.ref.path, // Store full path for updates
               memberId: legacyMemberId,
@@ -71,9 +71,9 @@ export default function BulkEntryTool({ resumeSheet, onClearResume }) {
 
           // C. Set Rows (Append an empty one at the end for convenience)
           if (existingRows.length > 0) {
-             setRows([...existingRows, { memberId: '', hours: '', activity: resumeSheet.event || '' }]);
+            setRows([...existingRows, { memberId: '', hours: '', activity: resumeSheet.event || '' }]);
           } else {
-             setRows([{ memberId: '', hours: '', activity: resumeSheet.event || '' }]);
+            setRows([{ memberId: '', hours: '', activity: resumeSheet.event || '' }]);
           }
 
           setStep(2);
@@ -96,9 +96,9 @@ export default function BulkEntryTool({ resumeSheet, onClearResume }) {
       // 1. Active
       const activeSnap = await getDocs(collection(db, "members"));
       activeSnap.forEach(d => allMembers.push({
-          id: d.id,
-          name: `${d.data().lastName}, ${d.data().firstName}`,
-          type: 'active'
+        id: d.id,
+        name: `${d.data().lastName}, ${d.data().firstName}`,
+        type: 'active'
       }));
       // 2. Legacy
       const legacySnap = await getDocs(collection(db, "legacy_members"));
@@ -127,7 +127,7 @@ export default function BulkEntryTool({ resumeSheet, onClearResume }) {
     }
   };
 
-const resetUpload = () => {
+  const resetUpload = () => {
     setUploadSuccess(false);
     setFile(null);
     setPreviewUrl(null);
@@ -137,15 +137,15 @@ const resetUpload = () => {
   };
 
 
-const handleStartEntry = async () => {
+  const handleStartEntry = async () => {
     if (!file || !sheetData.date) return alert("Please select a file and date.");
     setLoading(true);
-    
+
     try {
       const storageRef = ref(storage, `sheets/${sheetData.date}_${sheetData.sheetId}`);
       await uploadBytes(storageRef, file);
       const url = await getDownloadURL(storageRef);
-      
+
       await addDoc(collection(db, "volunteer_sheets"), {
         ...sheetData,
         imageUrl: url,
@@ -155,7 +155,7 @@ const handleStartEntry = async () => {
 
       setSheetData(prev => ({ ...prev, imageUrl: url }));
       // STOP! Don't go to step 2 yet.
-      setUploadSuccess(true); 
+      setUploadSuccess(true);
     } catch (err) {
       console.error(err);
       alert("Error uploading sheet: " + err.message);
@@ -186,7 +186,7 @@ const handleStartEntry = async () => {
     setPreviewUrl(null);
     setSheetData({ date: '', event: '', sheetId: '' });
     setRows([{ memberId: '', hours: '', activity: '' }]);
-    if (onClearResume) onClearResume(); 
+    if (onClearResume) onClearResume();
   };
 
   const handleSubmitAll = async () => {
@@ -196,11 +196,11 @@ const handleStartEntry = async () => {
 
     if (!window.confirm(`Ready to save changes to ${validRows.length} entries?`)) return;
     setLoading(true);
-    
+
     const batch = writeBatch(db);
     let updateCount = 0;
     let createCount = 0;
-    
+
     validRows.forEach(row => {
       // CASE 1: EXISTING ROW -> UPDATE
       if (row.isExisting && row.logPath) {
@@ -211,7 +211,7 @@ const handleStartEntry = async () => {
           hours: parseFloat(row.hours)
         });
         updateCount++;
-      } 
+      }
       // CASE 2: NEW ROW -> CREATE
       else {
         const memberInfo = members.find(m => m.id === row.memberId);
@@ -224,7 +224,7 @@ const handleStartEntry = async () => {
             date: sheetData.date,
             activity: row.activity,
             hours: parseFloat(row.hours),
-            status: "approved", 
+            status: "approved",
             sourceSheetId: sheetData.sheetId,
             importedAt: new Date(),
             applyToNextYear: false
@@ -258,7 +258,7 @@ const handleStartEntry = async () => {
         {resumeSheet ? `Resuming Entry for Sheet ${sheetData.sheetId}` : "Bulk Entry Tool (Handwritten Sheets)"}
       </h2>
 
-{step === 1 && (
+      {step === 1 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* LEFT SIDE: PREVIEW */}
           <div className="border-2 border-dashed border-gray-300 rounded p-8 text-center bg-gray-50 flex flex-col items-center justify-center">
@@ -267,13 +267,13 @@ const handleStartEntry = async () => {
             ) : (
               <div className="text-gray-400">No image selected</div>
             )}
-            
+
             {/* Hide file input if success, so they don't change it by accident */}
             {!uploadSuccess && (
-               <input type="file" onChange={handleFileSelect} className="mt-4" accept="image/*" capture="environment" />
+              <input type="file" onChange={handleFileSelect} className="mt-4" accept="image/*" capture="environment" />
             )}
           </div>
-          
+
           {/* RIGHT SIDE: FORM OR SUCCESS MESSAGE */}
           <div className="space-y-4">
             {uploadSuccess ? (
@@ -284,15 +284,15 @@ const handleStartEntry = async () => {
                 <p className="text-green-700 mb-6">
                   Reference ID: <span className="font-mono font-black">{sheetData.sheetId}</span>
                 </p>
-                
+
                 <div className="space-y-3">
-                  <button 
+                  <button
                     onClick={() => setStep(2)}
                     className="w-full bg-blue-600 text-white py-3 rounded font-bold hover:bg-blue-700"
                   >
                     Continue to Data Entry
                   </button>
-                  <button 
+                  <button
                     onClick={resetUpload}
                     className="w-full bg-white text-gray-700 border border-gray-300 py-3 rounded font-bold hover:bg-gray-50"
                   >
@@ -305,17 +305,17 @@ const handleStartEntry = async () => {
               <>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase">Sheet Date</label>
-                  <input type="date" className="w-full p-2 border rounded" 
+                  <input type="date" className="w-full p-2 border rounded"
                     value={sheetData.date}
-                    onChange={e => setSheetData({...sheetData, date: e.target.value})} />
+                    onChange={e => setSheetData({ ...sheetData, date: e.target.value })} />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase">Default Activity Name</label>
                   <input type="text" placeholder="e.g. Agility Trial Set Up" className="w-full p-2 border rounded"
                     value={sheetData.event}
-                    onChange={e => setSheetData({...sheetData, event: e.target.value})} />
+                    onChange={e => setSheetData({ ...sheetData, event: e.target.value })} />
                 </div>
-                
+
                 {sheetData.sheetId && (
                   <div className="bg-yellow-50 p-4 border border-yellow-200 rounded text-center">
                     <p className="text-sm text-yellow-800 font-bold">Write this ID on the paper sheet:</p>
@@ -323,8 +323,8 @@ const handleStartEntry = async () => {
                   </div>
                 )}
 
-                <button 
-                  onClick={handleStartEntry} 
+                <button
+                  onClick={handleStartEntry}
                   disabled={!file || loading}
                   className="w-full bg-blue-600 text-white py-3 rounded font-bold hover:bg-blue-700 disabled:opacity-50"
                 >
@@ -336,33 +336,33 @@ const handleStartEntry = async () => {
         </div>
       )}
 
-{/* STEP 2: DATA ENTRY (LANDSCAPE MODE) */}
+      {/* STEP 2: DATA ENTRY (LANDSCAPE MODE) */}
       {step === 2 && (
         <div className="flex flex-col gap-6">
-          
+
           {/* Top Pane: Image Reference (Landscape) */}
           <div className="w-full h-[400px] bg-gray-900 rounded flex items-center justify-center overflow-hidden relative group shrink-0">
-             <img 
-               src={previewUrl} 
-               alt="Sheet" 
-               className="w-full h-full object-contain" 
-             />
-             <div className="absolute bottom-4 right-4 flex gap-2">
-                <a 
-                  href={previewUrl} 
-                  target="_blank" 
-                  rel="noreferrer" 
-                  className="bg-white px-3 py-1 rounded text-xs font-bold shadow hover:bg-gray-100"
-                >
-                  Open Full Size
-                </a>
-             </div>
+            <img
+              src={previewUrl}
+              alt="Sheet"
+              className="w-full h-full object-contain"
+            />
+            <div className="absolute bottom-4 right-4 flex gap-2">
+              <a
+                href={previewUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="bg-white px-3 py-1 rounded text-xs font-bold shadow hover:bg-gray-100"
+              >
+                Open Full Size
+              </a>
+            </div>
           </div>
 
           {/* Bottom Pane: Grid */}
           <div className="w-full flex flex-col bg-white border rounded p-4 shadow-sm">
             <h3 className="font-bold text-gray-700 mb-2">Log Entries</h3>
-            
+
             {/* Scrollable Table Area */}
             <div className="max-h-[500px] overflow-y-auto border rounded">
               <table className="w-full text-left text-sm">
@@ -377,38 +377,33 @@ const handleStartEntry = async () => {
                 <tbody>
                   {rows.map((row, i) => (
                     <tr key={i} className={`border-b ${row.isExisting ? 'bg-gray-50' : ''}`}>
-                      <td className="p-2">
-                        <select 
-                          className="w-full p-2 border rounded bg-white disabled:bg-gray-100 disabled:text-gray-500"
+                      <td className="p-2 relative">
+                        <MemberSearchInput
+                          members={members}
                           value={row.memberId}
-                          onChange={e => updateRow(i, 'memberId', e.target.value)}
-                          disabled={row.isExisting} 
-                        >
-                          <option value="">Select Member...</option>
-                          {members.map(m => (
-                            <option key={m.id} value={m.id}>{m.name}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="p-2">
-                        <input 
-                          type="number" 
-                          className="w-full p-2 border rounded" 
-                          value={row.hours} 
-                          onChange={e => updateRow(i, 'hours', e.target.value)} 
+                          onChange={(newId) => updateRow(i, 'memberId', newId)}
+                          disabled={row.isExisting}
                         />
                       </td>
                       <td className="p-2">
-                        <input 
-                          type="text" 
-                          className="w-full p-2 border rounded" 
-                          value={row.activity} 
-                          onChange={e => updateRow(i, 'activity', e.target.value)} 
+                        <input
+                          type="number"
+                          className="w-full p-2 border rounded"
+                          value={row.hours}
+                          onChange={e => updateRow(i, 'hours', e.target.value)}
+                        />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          type="text"
+                          className="w-full p-2 border rounded"
+                          value={row.activity}
+                          onChange={e => updateRow(i, 'activity', e.target.value)}
                         />
                       </td>
                       <td className="p-2 text-center">
-                        <button 
-                          onClick={() => removeRow(i)} 
+                        <button
+                          onClick={() => removeRow(i)}
                           className="text-red-500 hover:text-red-700 font-bold text-lg px-2"
                         >
                           ×
@@ -419,30 +414,30 @@ const handleStartEntry = async () => {
                 </tbody>
               </table>
             </div>
-            
-            <button 
-              onClick={addRow} 
+
+            <button
+              onClick={addRow}
               className="mt-2 text-blue-600 text-sm font-bold hover:underline self-start"
             >
               + Add Row
             </button>
 
             <div className="pt-4 border-t mt-4 flex justify-between items-center">
-               <button onClick={handleCancel} className="text-gray-500 px-4 py-2 hover:bg-gray-100 rounded">
-                 Cancel
-               </button>
-               <div className="text-right">
-                 <p className="text-xs text-gray-400 mb-1 mr-1">
-                   {rows.filter(r => r.memberId && r.hours).length} valid entries
-                 </p>
-                 <button 
-                   onClick={handleSubmitAll} 
-                   disabled={loading} 
-                   className="bg-green-600 text-white px-8 py-3 rounded font-bold hover:bg-green-700 shadow"
-                 >
-                   {loading ? "Saving..." : `Submit Changes`}
-                 </button>
-               </div>
+              <button onClick={handleCancel} className="text-gray-500 px-4 py-2 hover:bg-gray-100 rounded">
+                Cancel
+              </button>
+              <div className="text-right">
+                <p className="text-xs text-gray-400 mb-1 mr-1">
+                  {rows.filter(r => r.memberId && r.hours).length} valid entries
+                </p>
+                <button
+                  onClick={handleSubmitAll}
+                  disabled={loading}
+                  className="bg-green-600 text-white px-8 py-3 rounded font-bold hover:bg-green-700 shadow"
+                >
+                  {loading ? "Saving..." : `Submit Changes`}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -450,3 +445,71 @@ const handleStartEntry = async () => {
     </div>
   );
 }
+
+// --- HELPER COMPONENT: SEARCHABLE DROPDOWN ---
+const MemberSearchInput = ({ members, value, onChange, disabled }) => {
+  const [query, setQuery] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+
+  // If a value is passed in (e.g. from existing data), display the name
+  useEffect(() => {
+    const selected = members.find(m => m.id === value);
+    if (selected) {
+      setQuery(selected.name);
+    } else if (!value) {
+      setQuery("");
+    }
+  }, [value, members]);
+
+  // Filter the list based on what the user types
+  const filteredMembers = members.filter(m =>
+    m.name.toLowerCase().includes(query.toLowerCase())
+  );
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        className={`w-full p-2 border rounded ${disabled ? 'bg-gray-100 text-gray-500' : 'bg-white'}`}
+        placeholder={disabled ? "" : "Type to search..."}
+        value={query}
+        disabled={disabled}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setIsOpen(true);
+          // If they clear the box, clear the selection
+          if (e.target.value === "") onChange("");
+        }}
+        onFocus={() => setIsOpen(true)}
+        // Delay closing so the "Click" event on the list can fire first
+        onBlur={() => setTimeout(() => setIsOpen(false), 200)}
+      />
+
+      {/* Dropdown List */}
+      {isOpen && !disabled && filteredMembers.length > 0 && (
+        <ul className="absolute z-50 w-full bg-white border border-gray-300 rounded shadow-lg max-h-48 overflow-y-auto mt-1">
+          {filteredMembers.map(m => (
+            <li
+              key={m.id}
+              className="p-2 hover:bg-blue-50 cursor-pointer text-sm border-b border-gray-100 last:border-0"
+              onClick={() => {
+                setQuery(m.name);
+                onChange(m.id); // Send ID back to parent
+                setIsOpen(false);
+              }}
+            >
+              {m.name}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* No results state */}
+      {isOpen && !disabled && query && filteredMembers.length === 0 && (
+        <div className="absolute z-50 w-full bg-white border border-gray-300 rounded shadow p-2 text-xs text-gray-500 mt-1">
+          No matches found
+        </div>
+      )}
+    </div>
+  );
+};
