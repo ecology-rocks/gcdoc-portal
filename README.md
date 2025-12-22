@@ -4,20 +4,7 @@ This is my app to deal with dog club stuff. I'll be working on improvements unti
 
 ## Bug Fixes & QOL Improvements
 
-### Phase 1: Core Membership & Volunteer Logic
-*Focus: Stabilizing the current features and tightening data integrity.*
-
-1. Legacy Data Linking (User Requirement #7)
- - Current State: The system attempts to auto-link legacy data by email when a user logs in. If emails don't match, the data is "orphaned."
- - Action: Build a "Link Legacy Profile" tool in the Admin Dashboard.
-    - Feature: Admin searches for a "Legacy User" and a "Current User" and clicks "Merge". This moves all logs from the legacy collection to the active user's log collection.
-
-2. Visibility for Maintenance/Cleaning (User Requirement #6)
- - Action: Add a "Category" tag to volunteer logs (e.g., Administration, Event, Maintenance).
-     - UI: Highlight Maintenance rows in green in the admin view.
-     - Stats: Add a specific counter in the VolunteerLogs stats area: "Maintenance Hours Earned."
-
-### Phase 2: Roles & Permissions Upgrade
+### Phase 1: Roles & Permissions Upgrade
 *Focus: Security and the new "Team Lead" role.*
 
 1. The "Team Lead" Role (User Requirement #5)

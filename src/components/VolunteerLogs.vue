@@ -13,10 +13,20 @@ const logs = ref([])
 const date = ref('')
 const hours = ref('')
 const activity = ref('')
+const category = ref('standard') 
 const editingId = ref(null)
 const loading = ref(false)
 const sheetPreview = ref(null)
 const viewingHistory = ref(null)
+
+// --- CONFIGURATION ---
+const CATEGORIES = {
+  standard: { label: 'Standard Volunteer', multiplier: 1, isMaintenance: false },
+  trial:    { label: 'Trial Set Up / Tear Down', multiplier: 2, isMaintenance: false },
+  // UPDATED: Multiplier changed from 1 to 2
+  maint:    { label: 'General Maintenance', multiplier: 2, isMaintenance: true },
+  cleaning: { label: 'Cleaning', multiplier: 2, isMaintenance: true }
+}
 
 // --- HELPERS ---
 const toInputDate = (str) => {
@@ -36,6 +46,15 @@ const toDisplayDate = (str) => {
   }
   return str
 }
+
+// --- COMPUTED PREVIEW ---
+const calculatedCredit = computed(() => {
+  const h = parseFloat(hours.value) || 0
+  const rule = CATEGORIES[category.value]
+  return h * rule.multiplier
+})
+
+const isBlueRibbon = computed(() => CATEGORIES[category.value].isMaintenance)
 
 // --- DB REFS ---
 const getCollectionRef = () => {
@@ -110,7 +129,9 @@ const toggleRollover = async (log) => {
 const handleSubmit = async () => {
   if (!date.value || !hours.value || !activity.value) return
   
-  const numHours = parseFloat(hours.value)
+  const finalHours = calculatedCredit.value
+  const maintenanceFlag = isBlueRibbon.value
+  
   const isAdmin = props.currentUserRole === 'admin'
   const newStatus = isAdmin ? 'approved' : 'pending'
 
@@ -119,11 +140,11 @@ const handleSubmit = async () => {
     (l.date === date.value || toInputDate(l.date) === date.value) && l.id !== editingId.value
   )
   const dailySum = existingLogsForDate.reduce((sum, l) => sum + (parseFloat(l.hours) || 0), 0)
-  const newDailyTotal = dailySum + numHours
+  const newDailyTotal = dailySum + finalHours
 
   if (newDailyTotal > 8) {
     const confirm = window.confirm(
-      `Total hours for ${date.value} will be ${newDailyTotal} hours.\nThis exceeds the 8-hour daily standard. Is this correct?`
+      `Total CREDIT for ${date.value} will be ${newDailyTotal} hours.\nThis exceeds the 8-hour daily standard. Is this correct?`
     )
     if (!confirm) return
   }
@@ -142,14 +163,16 @@ const handleSubmit = async () => {
              date: originalLog.date,
              hours: originalLog.hours,
              activity: originalLog.activity,
-             status: originalLog.status
+             status: originalLog.status,
+             isMaintenance: originalLog.isMaintenance || false
           }
        }
 
        await updateDoc(logRef, {
          date: date.value, 
-         hours: numHours, 
-         activity: activity.value, 
+         hours: finalHours,
+         activity: activity.value,
+         isMaintenance: maintenanceFlag, 
          status: newStatus, 
          history: arrayUnion(historyEntry)
        })
@@ -158,8 +181,9 @@ const handleSubmit = async () => {
        // --- CREATE ---
        const newLog = {
          date: date.value,
-         hours: numHours,
+         hours: finalHours,
          activity: activity.value,
+         isMaintenance: maintenanceFlag,
          status: newStatus,
          submittedAt: new Date(),
          applyToNextYear: false,
@@ -180,6 +204,7 @@ const handleSubmit = async () => {
     date.value = ''
     hours.value = ''
     activity.value = ''
+    category.value = 'standard'
     
     if (!isAdmin) alert("Hours submitted for approval.")
     fetchLogs()
@@ -191,8 +216,15 @@ const handleSubmit = async () => {
 
 const handleEdit = (log) => {
   date.value = toInputDate(log.date)
-  hours.value = log.hours
+  hours.value = log.hours 
   activity.value = log.activity
+  
+  if (log.isMaintenance) {
+    category.value = 'maint' 
+  } else {
+    category.value = 'standard'
+  }
+  
   editingId.value = log.id
 }
 
@@ -200,16 +232,12 @@ const handleDelete = async (log) => {
   if(!window.confirm("Are you sure you want to delete this entry?")) return
 
   try {
-    // 1. Archive the log before deleting
-    // We create a copy in 'archived_logs' collection
     await setDoc(doc(db, "archived_logs", log.id), {
       ...log,
       deletedAt: new Date(),
       deletedBy: auth.currentUser.email,
       originalCollection: props.user.type === 'legacy' ? 'legacyLogs' : 'logs'
     })
-
-    // 2. Delete the original
     await deleteDoc(getDocRef(log.id))
     fetchLogs()
   } catch (err) {
@@ -223,22 +251,40 @@ const cancelEdit = () => {
   date.value = ''
   hours.value = ''
   activity.value = ''
+  category.value = 'standard'
 }
 
+// --- STATS ---
 const stats = computed(() => calculateRewards(logs.value, props.user.membershipType))
+
+const maintenanceStats = computed(() => {
+  const maintHours = logs.value
+    .filter(l => l.isMaintenance)
+    .reduce((sum, l) => sum + (parseFloat(l.hours) || 0), 0)
+  
+  return {
+    hours: maintHours,
+    ribbons: Math.floor(maintHours / 8)
+  }
+})
 </script>
 
 <template>
   <div class="mt-8">
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
       <div class="bg-indigo-600 text-white p-4 rounded shadow">
         <h4 class="text-indigo-200 text-xs font-bold uppercase">{{ stats.year }} Fiscal Hours</h4>
         <p class="text-3xl font-bold">{{ stats.totalHours }}</p>
         <p class="text-xs opacity-75 mt-1">(Oct 1 - Sep 30)</p>
       </div>
       <div class="bg-white p-4 rounded shadow border-l-4 border-green-500">
-        <h4 class="text-gray-500 text-xs font-bold uppercase">Vouchers Earned</h4>
+        <h4 class="text-gray-500 text-xs font-bold uppercase">Standard Vouchers</h4>
         <p class="text-3xl font-bold text-gray-800">{{ stats.vouchers }}</p>
+      </div>
+      <div class="bg-green-50 p-4 rounded shadow border-l-4 border-green-700">
+        <h4 class="text-green-800 text-xs font-bold uppercase">Blue Ribbons 🏆</h4>
+        <p class="text-3xl font-bold text-green-900">{{ maintenanceStats.ribbons }}</p>
+        <p class="text-xs text-green-700 mt-1">{{ maintenanceStats.hours }} Maint. Hours</p>
       </div>
       <div class="bg-white p-4 rounded shadow border-l-4 border-blue-500">
         <h4 class="text-gray-500 text-xs font-bold uppercase">Membership Status</h4>
@@ -250,24 +296,54 @@ const stats = computed(() => calculateRewards(logs.value, props.user.membershipT
        {{ editingId ? "Edit Entry" : "Log New Hours" }}
     </h3>
     
-    <form @submit.prevent="handleSubmit" class="p-4 rounded mb-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-end" :class="editingId ? 'bg-yellow-50 border border-yellow-400' : 'bg-gray-100'">
+    <form @submit.prevent="handleSubmit" class="p-4 rounded mb-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-start" :class="editingId ? 'bg-yellow-50 border border-yellow-400' : 'bg-gray-100'">
+      
       <div>
         <label class="block text-xs font-bold text-gray-600 mb-1">Date</label>
         <input type="date" v-model="date" class="w-full p-2 border rounded" required />
       </div>
+
       <div class="md:col-span-2">
-        <label class="block text-xs font-bold text-gray-600 mb-1">Activity</label>
-        <input type="text" v-model="activity" class="w-full p-2 border rounded" required />
+        <label class="block text-xs font-bold text-gray-600 mb-1">Activity Description</label>
+        <input type="text" v-model="activity" class="w-full p-2 border rounded" placeholder="e.g. Cleaned mats, Set up rings" required />
+        
+        <label class="block text-xs font-bold text-gray-600 mt-3 mb-1">Credit Category</label>
+        <select v-model="category" class="w-full p-2 border rounded bg-white">
+          <option value="standard">Standard Volunteer (1x Credit)</option>
+          <option value="trial">Trial Set Up / Tear Down (2x Credit)</option>
+          <option value="maint">General Maintenance (2x + Blue Ribbon)</option>
+          <option value="cleaning">Cleaning (2x + Blue Ribbon)</option>
+        </select>
       </div>
+
       <div>
-        <label class="block text-xs font-bold text-gray-600 mb-1">Hours</label>
-        <div class="flex gap-2">
-          <input type="number" step="0.25" v-model="hours" class="w-full p-2 border rounded" required />
-          <button type="submit" class="text-white px-4 py-2 rounded hover:opacity-90 transition-colors" :class="editingId ? 'bg-yellow-600' : 'bg-green-600'">
-            {{ editingId ? "Update" : "Add" }}
+        <label class="block text-xs font-bold text-gray-600 mb-1">Actual Clock Hours</label>
+        <div class="flex flex-col gap-2">
+          <input 
+            type="number" 
+            step="0.25" 
+            v-model="hours" 
+            class="w-full p-2 border rounded" 
+            placeholder="Time worked"
+            required 
+          />
+          
+          <div v-if="hours" class="text-xs bg-white border px-2 py-1 rounded shadow-sm">
+             <span class="block text-gray-500">Credited: <strong class="text-black text-sm">{{ calculatedCredit }} hrs</strong></span>
+             <span v-if="CATEGORIES[category].multiplier > 1" class="text-purple-600 font-bold block">
+               (Doubled)
+             </span>
+             <span v-if="isBlueRibbon" class="text-green-600 font-bold block">
+               + Blue Ribbon
+             </span>
+          </div>
+
+          <button type="submit" class="text-white px-4 py-2 rounded hover:opacity-90 transition-colors shadow mt-1" :class="editingId ? 'bg-yellow-600' : 'bg-green-600'">
+            {{ editingId ? "Update" : "Submit" }}
           </button>
         </div>
       </div>
+
       <div v-if="editingId" class="col-span-4 text-right">
         <button type="button" @click="cancelEdit" class="text-sm text-gray-500 underline">Cancel Edit</button>
       </div>
@@ -279,7 +355,7 @@ const stats = computed(() => calculateRewards(logs.value, props.user.membershipT
           <tr>
             <th class="p-3 text-sm font-semibold text-gray-700">Date</th>
             <th class="p-3 text-sm font-semibold text-gray-700">Activity</th>
-            <th class="p-3 text-sm font-semibold text-gray-700 text-right">Hours</th>
+            <th class="p-3 text-sm font-semibold text-gray-700 text-right">Credited Hours</th>
             <th class="p-3 text-sm font-semibold text-gray-700">Status</th>
             <th v-if="currentUserRole === 'admin'" class="p-3 text-sm font-semibold text-gray-700 text-center">Roll Over</th>
             <th class="p-3 text-sm font-semibold text-gray-700">Actions</th>
@@ -288,15 +364,31 @@ const stats = computed(() => calculateRewards(logs.value, props.user.membershipT
         <tbody>
           <tr v-if="loading"><td colspan="6" class="p-4 text-center text-gray-500">Loading...</td></tr>
           <tr v-else-if="logs.length === 0"><td colspan="6" class="p-4 text-center text-gray-500">No hours logged yet.</td></tr>
-          <tr v-else v-for="log in logs" :key="log.id" class="border-t hover:bg-gray-50" :class="{ 'bg-purple-50': log.applyToNextYear }">
+          
+          <tr 
+            v-else 
+            v-for="log in logs" 
+            :key="log.id" 
+            class="border-t hover:opacity-100 transition-colors"
+            :class="{ 
+              'bg-green-50 hover:bg-green-100': log.isMaintenance,
+              'bg-purple-50 hover:bg-purple-100': log.applyToNextYear && !log.isMaintenance,
+              'hover:bg-gray-50': !log.isMaintenance && !log.applyToNextYear
+            }"
+          >
              <td class="p-3">{{ toDisplayDate(log.date) }}</td>
-             <td class="p-3">{{ log.activity }}</td>
-             <td class="p-3 text-right font-mono">{{ log.hours }}</td>
+             <td class="p-3">
+               {{ log.activity }}
+               <span v-if="log.isMaintenance" class="ml-2 text-[10px] uppercase font-bold text-green-700 border border-green-300 px-1 rounded bg-white">
+                 Maintenance
+               </span>
+             </td>
+             <td class="p-3 text-right font-mono font-bold">{{ log.hours }}</td>
              <td class="p-3">
               <span class="text-xs px-2 py-1 rounded-full capitalize" 
                 :class="{
                   'bg-orange-100 text-orange-800': log.status === 'pending',
-                  'bg-green-100 text-green-800': log.status !== 'pending'
+                  'bg-white border border-gray-300 text-gray-600': log.status !== 'pending'
                 }">
                 {{ log.status || 'approved' }}
               </span>
@@ -312,7 +404,7 @@ const stats = computed(() => calculateRewards(logs.value, props.user.membershipT
              </td>
 
              <td class="p-3 text-sm whitespace-nowrap flex items-center">
-              <button @click="handleEdit(log)" class="text-blue-600 hover:underline mr-3">Edit</button>
+              <button @click="handleEdit(log)" class="text-blue-600 hover:underline mr-3 font-bold">Edit</button>
               <button @click="handleDelete(log)" class="text-red-600 hover:underline mr-3">Delete</button>
               
               <button 
@@ -327,7 +419,7 @@ const stats = computed(() => calculateRewards(logs.value, props.user.membershipT
               <button 
                 v-if="log.history && log.history.length > 0"
                 @click="viewingHistory = log" 
-                class="text-gray-500 hover:text-gray-700 text-xs border border-gray-300 px-2 py-1 rounded bg-gray-50"
+                class="text-gray-500 hover:text-gray-700 text-xs border border-gray-300 px-2 py-1 rounded bg-white"
                 title="View Edit History"
               >
                 🕒 History
@@ -358,6 +450,7 @@ const stats = computed(() => calculateRewards(logs.value, props.user.membershipT
               <p>Date: {{ entry.oldData.date }}</p>
               <p>Activity: {{ entry.oldData.activity }}</p>
               <p>Hours: {{ entry.oldData.hours }}</p>
+              <p v-if="entry.oldData.isMaintenance">Type: Maintenance</p>
             </div>
           </div>
         </div>
