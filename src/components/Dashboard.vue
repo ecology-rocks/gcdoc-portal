@@ -4,6 +4,7 @@ import { signOut } from "firebase/auth"
 import { doc, getDoc, setDoc, query, collection, where, getDocs, writeBatch } from "firebase/firestore"
 import { db, auth } from '../firebase'
 
+
 // Child components
 // Note: These imports assume you will convert these components to .vue files next.
 import VolunteerLogs from './VolunteerLogs.vue'
@@ -15,6 +16,7 @@ import AdminPendingReview from './AdminPendingReview.vue'
 import BulkEntryTool from './BulkEntryTool.vue'
 import SheetArchive from './SheetArchive.vue'
 import Accordion from './Accordion.vue'
+import NewMemberForm from './NewMemberForm.vue'
 
 const props = defineProps({
   user: {
@@ -28,6 +30,8 @@ const targetUser = ref(null)
 const isEditing = ref(false)
 const error = ref(null)
 const resumeSheet = ref(null)
+const showNewMemberModal = ref(false)
+const refreshKey = ref(0)
 
 // Computed properties for determining view state
 const activeUser = computed(() => targetUser.value || memberData.value)
@@ -36,6 +40,11 @@ const isAdmin = computed(() => memberData.value?.role === 'admin')
 
 const handleSignOut = () => {
   signOut(auth)
+}
+
+const handleMemberSaved = () => {
+  showNewMemberModal.value = false
+  refreshKey.value++ // This forces components using this key to reload
 }
 
 const syncProfile = async () => {
@@ -79,7 +88,7 @@ const syncProfile = async () => {
       // 3. Update the Real Profile
       if (foundProfileData) {
         const profileRef = doc(db, "members", props.user.uid)
-        
+
         // Remove fields we don't want to overwrite blindly
         // eslint-disable-next-line no-unused-vars
         const { legacyLogs, legacyKey, ...validProfileData } = foundProfileData
@@ -162,26 +171,26 @@ const clearResume = () => {
           <span v-if="isAdmin" class="ml-2 bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">ADMIN</span>
         </p>
       </div>
-      <button
-        @click="handleSignOut"
-        class="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300 transition"
-      >
+      <button @click="handleSignOut" class="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300 transition">
         Sign Out
       </button>
     </header>
 
     <div v-if="isAdmin" class="mb-12 border-t pt-8">
       <h2 class="text-2xl font-bold text-gray-800 mb-6">Admin Dashboard</h2>
+      <div class="flex justify-between items-center mb-6">
+      <button @click="showNewMemberModal = true"
+        class="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 font-bold flex items-center gap-2">
+        <span>+</span> Add New Member
+      </button>
+      </div>
 
       <Accordion title="⚠️ Pending Review" color="orange">
         <AdminPendingReview />
       </Accordion>
 
       <Accordion title="📝 Bulk Entry (Handwritten Sheets)" color="gray" :defaultOpen="!!resumeSheet">
-        <BulkEntryTool
-          :resumeSheet="resumeSheet"
-          @clear-resume="clearResume"
-        />
+        <BulkEntryTool :resumeSheet="resumeSheet" @clear-resume="clearResume" />
         <SheetArchive @resume="(sheet) => resumeSheet = sheet" />
       </Accordion>
 
@@ -194,14 +203,12 @@ const clearResume = () => {
       </Accordion>
 
       <Accordion title="👤 Log Hours for Others" color="blue" :defaultOpen="true">
-        <AdminMemberSelect @select="(m) => targetUser = m" />
+        <AdminMemberSelect :key="refreshKey" @select="(m) => targetUser = m" />
       </Accordion>
     </div>
 
-    <div 
-      class="p-6 rounded shadow mb-6 transition-colors relative"
-      :class="isViewingSelf ? 'bg-white' : 'bg-blue-50 border-2 border-blue-300'"
-    >
+    <div class="p-6 rounded shadow mb-6 transition-colors relative"
+      :class="isViewingSelf ? 'bg-white' : 'bg-blue-50 border-2 border-blue-300'">
       <div class="flex justify-between items-start mb-4">
         <h2 class="text-xl font-bold text-gray-800">
           {{ isViewingSelf ? "My Membership" : `Viewing: ${activeUser.firstName} ${activeUser.lastName}` }}
@@ -211,10 +218,8 @@ const clearResume = () => {
           <button v-if="!isViewingSelf" @click="targetUser = null" class="text-sm text-blue-600 underline mr-2">
             Back to Me
           </button>
-          <button
-            @click="isEditing = true"
-            class="bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-bold px-3 py-1 rounded"
-          >
+          <button @click="isEditing = true"
+            class="bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-bold px-3 py-1 rounded">
             Edit Profile
           </button>
         </div>
@@ -247,19 +252,14 @@ const clearResume = () => {
       </div>
     </div>
 
-    <ProfileEditor
-      v-if="isEditing"
-      :targetUser="activeUser"
-      :currentUserRole="memberData.role"
-      @close="isEditing = false"
-      @save="handleProfileUpdate"
-    />
+    <ProfileEditor v-if="isEditing" :targetUser="activeUser" :currentUserRole="memberData.role"
+      @close="isEditing = false" @save="handleProfileUpdate" />
 
-    <VolunteerLogs
-      :key="activeUser.uid"
-      :user="activeUser"
-      :currentUserRole="memberData.role"
+    <VolunteerLogs :key="activeUser.uid" :user="activeUser" :currentUserRole="memberData.role" />
+    <NewMemberForm
+      v-if="showNewMemberModal"
+      @close="showNewMemberModal = false"
+      @saved="handleMemberSaved"
     />
-
   </div>
 </template>
