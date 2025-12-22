@@ -4,9 +4,7 @@ import { signOut } from "firebase/auth"
 import { doc, getDoc, setDoc, query, collection, where, getDocs, writeBatch } from "firebase/firestore"
 import { db, auth } from '../firebase'
 
-
 // Child components
-// Note: These imports assume you will convert these components to .vue files next.
 import VolunteerLogs from './VolunteerLogs.vue'
 import ProfileEditor from './ProfileEditor.vue'
 import AdminDataTools from './AdminDataTools.vue'
@@ -17,6 +15,7 @@ import BulkEntryTool from './BulkEntryTool.vue'
 import SheetArchive from './SheetArchive.vue'
 import Accordion from './Accordion.vue'
 import NewMemberForm from './NewMemberForm.vue'
+import LegacyLinkTool from './LegacyLinkTool.vue' // <--- IMPORTED
 
 const props = defineProps({
   user: {
@@ -28,10 +27,10 @@ const props = defineProps({
 const memberData = ref(null)
 const targetUser = ref(null)
 const isEditing = ref(false)
+const showNewMemberModal = ref(false) 
 const error = ref(null)
 const resumeSheet = ref(null)
-const showNewMemberModal = ref(false)
-const refreshKey = ref(0)
+const refreshKey = ref(0) // Used to force reload of member lists
 
 // Computed properties for determining view state
 const activeUser = computed(() => targetUser.value || memberData.value)
@@ -44,7 +43,7 @@ const handleSignOut = () => {
 
 const handleMemberSaved = () => {
   showNewMemberModal.value = false
-  refreshKey.value++ // This forces components using this key to reload
+  refreshKey.value++ // Reload lists
 }
 
 const syncProfile = async () => {
@@ -60,14 +59,10 @@ const syncProfile = async () => {
       const batch = writeBatch(db)
       let foundProfileData = null
 
-      // Loop through ALL matching legacy records
       for (const legacyDoc of legacySnap.docs) {
         const legacyData = legacyDoc.data()
-
-        // Save the profile info from the first one we find
         if (!foundProfileData) foundProfileData = legacyData
 
-        // 1. Move Logs
         const legacyLogsRef = collection(db, "legacy_members", legacyDoc.id, "legacyLogs")
         const legacyLogsSnap = await getDocs(legacyLogsRef)
 
@@ -80,16 +75,11 @@ const syncProfile = async () => {
             importedAt: new Date()
           })
         })
-
-        // 2. Delete the old legacy record
         batch.delete(legacyDoc.ref)
       }
 
-      // 3. Update the Real Profile
       if (foundProfileData) {
         const profileRef = doc(db, "members", props.user.uid)
-
-        // Remove fields we don't want to overwrite blindly
         // eslint-disable-next-line no-unused-vars
         const { legacyLogs, legacyKey, ...validProfileData } = foundProfileData
 
@@ -99,7 +89,6 @@ const syncProfile = async () => {
           uid: props.user.uid
         }, { merge: true })
 
-        // Update local state immediately
         memberData.value = {
           ...validProfileData,
           email: props.user.email,
@@ -138,21 +127,17 @@ const syncProfile = async () => {
   }
 }
 
-// Watch for user changes to sync profile
 watch(() => props.user, syncProfile, { immediate: true })
 
 const handleProfileUpdate = (newData) => {
-  // If we are editing the logged-in user, update memberData
   if (activeUser.value.uid === props.user.uid) {
     memberData.value = { ...memberData.value, ...newData }
   }
-  // If we are editing a target user (Admin mode), update targetUser
   if (targetUser.value && activeUser.value.uid === targetUser.value.uid) {
     targetUser.value = { ...targetUser.value, ...newData }
   }
 }
 
-// Handler for clearing the resume sheet state
 const clearResume = () => {
   resumeSheet.value = null
 }
@@ -171,26 +156,39 @@ const clearResume = () => {
           <span v-if="isAdmin" class="ml-2 bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">ADMIN</span>
         </p>
       </div>
-      <button @click="handleSignOut" class="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300 transition">
+      <button
+        @click="handleSignOut"
+        class="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300 transition"
+      >
         Sign Out
       </button>
     </header>
 
     <div v-if="isAdmin" class="mb-12 border-t pt-8">
-      <h2 class="text-2xl font-bold text-gray-800 mb-6">Admin Dashboard</h2>
       <div class="flex justify-between items-center mb-6">
-      <button @click="showNewMemberModal = true"
-        class="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 font-bold flex items-center gap-2">
-        <span>+</span> Add New Member
-      </button>
+        <h2 class="text-2xl font-bold text-gray-800">Admin Dashboard</h2>
+        
+        <button 
+          @click="showNewMemberModal = true"
+          class="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 font-bold flex items-center gap-2"
+        >
+          <span>+</span> Add New Member
+        </button>
       </div>
 
       <Accordion title="⚠️ Pending Review" color="orange">
         <AdminPendingReview />
       </Accordion>
 
+      <Accordion title="🔗 Manual Data Link" color="purple">
+        <LegacyLinkTool />
+      </Accordion>
+
       <Accordion title="📝 Bulk Entry (Handwritten Sheets)" color="gray" :defaultOpen="!!resumeSheet">
-        <BulkEntryTool :resumeSheet="resumeSheet" @clear-resume="clearResume" />
+        <BulkEntryTool
+          :resumeSheet="resumeSheet"
+          @clear-resume="clearResume"
+        />
         <SheetArchive @resume="(sheet) => resumeSheet = sheet" />
       </Accordion>
 
@@ -207,8 +205,10 @@ const clearResume = () => {
       </Accordion>
     </div>
 
-    <div class="p-6 rounded shadow mb-6 transition-colors relative"
-      :class="isViewingSelf ? 'bg-white' : 'bg-blue-50 border-2 border-blue-300'">
+    <div 
+      class="p-6 rounded shadow mb-6 transition-colors relative"
+      :class="isViewingSelf ? 'bg-white' : 'bg-blue-50 border-2 border-blue-300'"
+    >
       <div class="flex justify-between items-start mb-4">
         <h2 class="text-xl font-bold text-gray-800">
           {{ isViewingSelf ? "My Membership" : `Viewing: ${activeUser.firstName} ${activeUser.lastName}` }}
@@ -218,8 +218,10 @@ const clearResume = () => {
           <button v-if="!isViewingSelf" @click="targetUser = null" class="text-sm text-blue-600 underline mr-2">
             Back to Me
           </button>
-          <button @click="isEditing = true"
-            class="bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-bold px-3 py-1 rounded">
+          <button
+            @click="isEditing = true"
+            class="bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-bold px-3 py-1 rounded"
+          >
             Edit Profile
           </button>
         </div>
@@ -252,14 +254,25 @@ const clearResume = () => {
       </div>
     </div>
 
-    <ProfileEditor v-if="isEditing" :targetUser="activeUser" :currentUserRole="memberData.role"
-      @close="isEditing = false" @save="handleProfileUpdate" />
+    <ProfileEditor
+      v-if="isEditing"
+      :targetUser="activeUser"
+      :currentUserRole="memberData.role"
+      @close="isEditing = false"
+      @save="handleProfileUpdate"
+    />
 
-    <VolunteerLogs :key="activeUser.uid" :user="activeUser" :currentUserRole="memberData.role" />
+    <VolunteerLogs
+      :key="activeUser.uid"
+      :user="activeUser"
+      :currentUserRole="memberData.role"
+    />
+
     <NewMemberForm
       v-if="showNewMemberModal"
       @close="showNewMemberModal = false"
       @saved="handleMemberSaved"
     />
+
   </div>
 </template>
