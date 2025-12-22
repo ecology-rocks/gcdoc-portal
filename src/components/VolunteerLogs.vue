@@ -1,6 +1,6 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
-import { collection, addDoc, query, where, getDocs, doc, deleteDoc, updateDoc, arrayUnion } from "firebase/firestore"
+import { ref, computed, watch } from 'vue'
+import { collection, addDoc, query, where, getDocs, doc, deleteDoc, updateDoc, arrayUnion, setDoc } from "firebase/firestore"
 import { db, auth } from '../firebase'
 import { calculateRewards } from '../utils'
 
@@ -80,7 +80,6 @@ const fetchLogs = async () => {
   loading.value = false
 }
 
-// Watch user prop to refetch when switching users
 watch(() => props.user, fetchLogs, { immediate: true })
 
 const handleViewSheet = async (sheetId) => {
@@ -101,7 +100,6 @@ const toggleRollover = async (log) => {
   try {
     const newVal = !log.applyToNextYear
     await updateDoc(getDocRef(log.id), { applyToNextYear: newVal })
-    // Optimistic UI update
     const idx = logs.value.findIndex(l => l.id === log.id)
     if (idx !== -1) logs.value[idx].applyToNextYear = newVal
   } catch (err) {
@@ -113,9 +111,10 @@ const handleSubmit = async () => {
   if (!date.value || !hours.value || !activity.value) return
   
   const numHours = parseFloat(hours.value)
-  let status = "approved"
+  const isAdmin = props.currentUserRole === 'admin'
+  const newStatus = isAdmin ? 'approved' : 'pending'
 
-  // Check Daily Total
+  // Daily Limit Check
   const existingLogsForDate = logs.value.filter(l => 
     (l.date === date.value || toInputDate(l.date) === date.value) && l.id !== editingId.value
   )
@@ -127,23 +126,23 @@ const handleSubmit = async () => {
       `Total hours for ${date.value} will be ${newDailyTotal} hours.\nThis exceeds the 8-hour daily standard. Is this correct?`
     )
     if (!confirm) return
-    status = "pending"
   }
 
   try {
     if (editingId.value) {
-       // EDIT
+       // --- EDIT ---
        const logRef = getDocRef(editingId.value)
-       const newStatus = props.currentUserRole === 'admin' ? 'approved' : status
-       
        const originalLog = logs.value.find(l => l.id === editingId.value)
+       
        const historyEntry = {
           changedAt: new Date().toISOString(),
           changedBy: auth.currentUser.email,
+          action: "edited",
           oldData: {
              date: originalLog.date,
              hours: originalLog.hours,
-             activity: originalLog.activity
+             activity: originalLog.activity,
+             status: originalLog.status
           }
        }
 
@@ -151,21 +150,24 @@ const handleSubmit = async () => {
          date: date.value, 
          hours: numHours, 
          activity: activity.value, 
-         status: newStatus,
+         status: newStatus, 
          history: arrayUnion(historyEntry)
        })
        editingId.value = null
     } else {
-       // CREATE
-       const finalStatus = props.currentUserRole === 'admin' ? 'approved' : status
+       // --- CREATE ---
        const newLog = {
          date: date.value,
          hours: numHours,
          activity: activity.value,
-         status: finalStatus,
+         status: newStatus,
          submittedAt: new Date(),
          applyToNextYear: false,
-         history: []
+         history: [{
+           changedAt: new Date().toISOString(),
+           changedBy: auth.currentUser.email,
+           action: "created"
+         }]
        }
        
        if (props.user.type !== 'legacy') {
@@ -175,10 +177,11 @@ const handleSubmit = async () => {
        await addDoc(getCollectionRef(), newLog)
     }
     
-    // Reset form
     date.value = ''
     hours.value = ''
     activity.value = ''
+    
+    if (!isAdmin) alert("Hours submitted for approval.")
     fetchLogs()
   } catch (err) {
     console.error("Error saving log:", err)
@@ -193,10 +196,25 @@ const handleEdit = (log) => {
   editingId.value = log.id
 }
 
-const handleDelete = async (id) => {
-  if(window.confirm("Are you sure you want to delete this entry?")) {
-    await deleteDoc(getDocRef(id))
+const handleDelete = async (log) => {
+  if(!window.confirm("Are you sure you want to delete this entry?")) return
+
+  try {
+    // 1. Archive the log before deleting
+    // We create a copy in 'archived_logs' collection
+    await setDoc(doc(db, "archived_logs", log.id), {
+      ...log,
+      deletedAt: new Date(),
+      deletedBy: auth.currentUser.email,
+      originalCollection: props.user.type === 'legacy' ? 'legacyLogs' : 'logs'
+    })
+
+    // 2. Delete the original
+    await deleteDoc(getDocRef(log.id))
     fetchLogs()
+  } catch (err) {
+    console.error(err)
+    alert("Error deleting: " + err.message)
   }
 }
 
@@ -207,7 +225,6 @@ const cancelEdit = () => {
   activity.value = ''
 }
 
-// Stats Calculation
 const stats = computed(() => calculateRewards(logs.value, props.user.membershipType))
 </script>
 
@@ -246,7 +263,7 @@ const stats = computed(() => calculateRewards(logs.value, props.user.membershipT
         <label class="block text-xs font-bold text-gray-600 mb-1">Hours</label>
         <div class="flex gap-2">
           <input type="number" step="0.25" v-model="hours" class="w-full p-2 border rounded" required />
-          <button type="submit" class="text-white px-4 py-2 rounded hover:opacity-90" :class="editingId ? 'bg-yellow-600' : 'bg-green-600'">
+          <button type="submit" class="text-white px-4 py-2 rounded hover:opacity-90 transition-colors" :class="editingId ? 'bg-yellow-600' : 'bg-green-600'">
             {{ editingId ? "Update" : "Add" }}
           </button>
         </div>
@@ -276,7 +293,11 @@ const stats = computed(() => calculateRewards(logs.value, props.user.membershipT
              <td class="p-3">{{ log.activity }}</td>
              <td class="p-3 text-right font-mono">{{ log.hours }}</td>
              <td class="p-3">
-              <span class="text-xs px-2 py-1 rounded-full" :class="log.status === 'pending' ? 'bg-orange-100 text-orange-800' : 'bg-green-100 text-green-800'">
+              <span class="text-xs px-2 py-1 rounded-full capitalize" 
+                :class="{
+                  'bg-orange-100 text-orange-800': log.status === 'pending',
+                  'bg-green-100 text-green-800': log.status !== 'pending'
+                }">
                 {{ log.status || 'approved' }}
               </span>
              </td>
@@ -292,7 +313,7 @@ const stats = computed(() => calculateRewards(logs.value, props.user.membershipT
 
              <td class="p-3 text-sm whitespace-nowrap flex items-center">
               <button @click="handleEdit(log)" class="text-blue-600 hover:underline mr-3">Edit</button>
-              <button @click="handleDelete(log.id)" class="text-red-600 hover:underline mr-3">Delete</button>
+              <button @click="handleDelete(log)" class="text-red-600 hover:underline mr-3">Delete</button>
               
               <button 
                 v-if="currentUserRole === 'admin' && log.sourceSheetId"
@@ -327,9 +348,12 @@ const stats = computed(() => calculateRewards(logs.value, props.user.membershipT
         <div class="max-h-[300px] overflow-y-auto space-y-4">
           <div v-for="(entry, i) in viewingHistory.history.slice().reverse()" :key="i" class="text-sm border-l-2 border-gray-300 pl-3">
             <p class="text-gray-500 text-xs">
-              {{ new Date(entry.changedAt).toLocaleString() }} by <span class="font-semibold">{{ entry.changedBy }}</span>
+              {{ new Date(entry.changedAt).toLocaleString() }} 
+              by <span class="font-semibold">{{ entry.changedBy }}</span>
             </p>
-            <div class="mt-1 text-gray-700 bg-gray-50 p-2 rounded">
+            <p class="font-bold text-xs uppercase text-blue-600 mb-1">{{ entry.action || 'changed' }}</p>
+            
+            <div v-if="entry.oldData" class="mt-1 text-gray-700 bg-gray-50 p-2 rounded">
               <p class="font-bold text-xs uppercase text-gray-400 mb-1">Previous Version:</p>
               <p>Date: {{ entry.oldData.date }}</p>
               <p>Activity: {{ entry.oldData.activity }}</p>
