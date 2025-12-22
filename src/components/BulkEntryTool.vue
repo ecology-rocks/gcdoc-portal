@@ -1,16 +1,9 @@
 <script setup>
 import { ref, watch, onMounted } from 'vue'
-import { collection, getDocs, addDoc, writeBatch, doc, query, where, collectionGroup, updateDoc } from "firebase/firestore"
+import { collection, getDocs, addDoc, writeBatch, doc, query, where, collectionGroup } from "firebase/firestore"
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage"
 import { db, storage } from '../firebase'
-
-// --- INNER COMPONENT: MEMBER SEARCH INPUT ---
-// defined locally for simplicity
-import MemberSearchInput from './MemberSearchInput.vue' 
-// Note: Since I can't create two files in one block easily, I will assume you create 
-// MemberSearchInput.vue separately (code provided below this block), 
-// OR I can inline the logic. 
-// RECOMMENDATION: Create a separate file. I will provide it below.
+import MemberSearchInput from './MemberSearchInput.vue'
 
 const props = defineProps({
   resumeSheet: Object
@@ -34,7 +27,6 @@ const rows = ref([{ memberId: '', hours: '', activity: '' }])
 // --- LOAD DATA ON RESUME ---
 watch(() => props.resumeSheet, async (newSheet) => {
   if (newSheet) {
-    // 1. Load Sheet Info
     sheetData.value = {
       date: newSheet.date,
       event: newSheet.event || '',
@@ -43,7 +35,6 @@ watch(() => props.resumeSheet, async (newSheet) => {
     }
     previewUrl.value = newSheet.imageUrl
 
-    // 2. Fetch Existing Logs
     loading.value = true
     try {
       const existingRows = []
@@ -100,14 +91,13 @@ watch(() => props.resumeSheet, async (newSheet) => {
 onMounted(async () => {
   loading.value = true
   const allMembers = []
-  // 1. Active
   const activeSnap = await getDocs(collection(db, "members"))
   activeSnap.forEach(d => allMembers.push({
     id: d.id,
     name: `${d.data().lastName}, ${d.data().firstName}`,
     type: 'active'
   }))
-  // 2. Legacy
+  
   const legacySnap = await getDocs(collection(db, "legacy_members"))
   legacySnap.forEach(d => {
     if (d.data().lastName) {
@@ -195,7 +185,6 @@ const handleSubmitAll = async () => {
 
   validRows.forEach(row => {
     if (row.isExisting && row.logPath) {
-      // UPDATE
       const logRef = doc(db, row.logPath)
       batch.update(logRef, {
         date: sheetData.value.date,
@@ -204,7 +193,6 @@ const handleSubmitAll = async () => {
       })
       updateCount++
     } else {
-      // CREATE
       const memberInfo = members.value.find(m => m.id === row.memberId)
       if (!memberInfo) return
 
@@ -328,9 +316,9 @@ const handleSubmitAll = async () => {
       <div class="w-full flex flex-col bg-white border rounded p-4 shadow-sm">
         <h3 class="font-bold text-gray-700 mb-2">Log Entries</h3>
         
-        <div class="max-h-[500px] overflow-y-auto border rounded">
+        <div class="border rounded">
           <table class="w-full text-left text-sm">
-            <thead class="bg-gray-100 sticky top-0 z-10">
+            <thead class="bg-gray-100">
               <tr>
                 <th class="p-2">Member</th>
                 <th class="p-2 w-24">Hours</th>
@@ -339,8 +327,14 @@ const handleSubmitAll = async () => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(row, i) in rows" :key="i" class="border-b" :class="{ 'bg-gray-50': row.isExisting }">
-                <td class="p-2 relative">
+              <tr 
+                v-for="(row, i) in rows" 
+                :key="i" 
+                class="border-b" 
+                :class="{ 'bg-gray-50': row.isExisting }"
+                style="overflow: visible;" 
+              >
+                <td class="p-2 relative" :style="{ zIndex: 500 - i }">
                   <MemberSearchInput
                     :members="members"
                     v-model="row.memberId"
