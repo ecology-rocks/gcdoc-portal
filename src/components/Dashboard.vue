@@ -34,12 +34,16 @@ const refreshKey = ref(0)
 
 // UI State
 const activeTab = ref('membership') // 'membership' or 'admin'
-const emailCopyStatus = ref('') // <--- NEW STATE FOR COPY FEEDBACK
+const emailCopyStatus = ref('') 
 
 // Computed properties
 const activeUser = computed(() => targetUser.value || memberData.value)
 const isViewingSelf = computed(() => activeUser.value && activeUser.value.uid === props.user.uid)
+
+// PERMISSIONS
 const isAdmin = computed(() => memberData.value?.role === 'admin')
+const isManager = computed(() => memberData.value?.role === 'manager')
+const isManagerOrAdmin = computed(() => isAdmin.value || isManager.value)
 
 const handleSignOut = () => {
   signOut(auth)
@@ -57,7 +61,6 @@ const handleAdminSelectUser = (user) => {
   }
 }
 
-// --- NEW COPY FUNCTION ---
 const copyEmail = async (email) => {
   if (!email) return
   try {
@@ -179,6 +182,7 @@ const clearResume = () => {
         <p class="text-gray-500 text-sm">
           Welcome, <strong>{{ memberData.firstName }}</strong>
           <span v-if="isAdmin" class="ml-2 bg-blue-600 text-white text-[10px] uppercase font-bold px-2 py-0.5 rounded-full">Admin</span>
+          <span v-else-if="isManager" class="ml-2 bg-purple-600 text-white text-[10px] uppercase font-bold px-2 py-0.5 rounded-full">Manager</span>
         </p>
       </div>
       <button
@@ -189,7 +193,7 @@ const clearResume = () => {
       </button>
     </header>
 
-    <div v-if="isAdmin" class="flex gap-4 mb-6 border-b">
+    <div v-if="isManagerOrAdmin" class="flex gap-4 mb-6 border-b">
       <button 
         @click="activeTab = 'membership'"
         class="pb-2 px-4 font-bold text-sm border-b-2 transition-colors"
@@ -206,8 +210,9 @@ const clearResume = () => {
       </button>
     </div>
 
-    <div v-if="isAdmin && activeTab === 'admin'" class="animate-fade-in">
-      <div class="flex justify-between items-center mb-6">
+    <div v-if="isManagerOrAdmin && activeTab === 'admin'" class="animate-fade-in">
+      
+      <div v-if="isAdmin" class="flex justify-between items-center mb-6">
         <h2 class="text-xl font-bold text-gray-700">Administrative Tools</h2>
         <button 
           @click="showNewMemberModal = true"
@@ -216,42 +221,47 @@ const clearResume = () => {
           <span>+</span> Add New Member
         </button>
       </div>
+      <div v-else class="mb-6">
+        <h2 class="text-xl font-bold text-gray-700">Manager Tools</h2>
+      </div>
 
       <div class="grid gap-6">
-        <div class="bg-blue-50 border border-blue-200 rounded p-4">
-           <AdminMemberSelect :key="refreshKey" @select="handleAdminSelectUser" />
-           <p class="text-xs text-blue-800 mt-2">
-             * Selecting a user here will automatically switch you to the "Member View" tab to edit their logs.
-           </p>
-        </div>
-
-        <Accordion title="⚠️ Pending Review / Applicants" color="orange">
-          <AdminPendingReview />
-        </Accordion>
-
-        <Accordion title="🔗 Manual Data Link (Orphans)" color="purple">
-          <LegacyLinkTool />
-        </Accordion>
-
+        
         <Accordion title="📝 Bulk Entry (Handwritten Sheets)" color="gray" :defaultOpen="!!resumeSheet">
           <BulkEntryTool
-            :resumeSheet="resumeSheet"
-            @clear-resume="clearResume"
-          />
-          <SheetArchive @resume="(sheet) => resumeSheet = sheet" />
+            :resumeSheet="resumeSheet" :currentUser="user" @clear-resume="clearResume" />
+          <SheetArchive :currentUser="user" @resume="(sheet) => resumeSheet = sheet" />
         </Accordion>
 
-        <Accordion title="💾 Import & Export Data" color="gray">
-          <AdminDataTools />
+        <Accordion title="👤 Log Hours for Others" color="blue">
+           <AdminMemberSelect :key="refreshKey" @select="handleAdminSelectUser" />
+           <p class="text-xs text-blue-800 mt-2 bg-blue-50 p-2 rounded">
+             * Selecting a user here will automatically switch you to the "Member View" tab to edit their logs.
+           </p>
         </Accordion>
 
-        <Accordion title="🧹 Database Cleanup" color="red">
-          <DeduplicateTool :user="user" />
-        </Accordion>
+        <template v-if="isAdmin">
+          <Accordion title="⚠️ Pending Review / Applicants" color="orange">
+            <AdminPendingReview />
+          </Accordion>
+
+          <Accordion title="🔗 Manual Data Link (Orphans)" color="purple">
+            <LegacyLinkTool />
+          </Accordion>
+
+          <Accordion title="💾 Import & Export Data" color="gray">
+            <AdminDataTools />
+          </Accordion>
+
+          <Accordion title="🧹 Database Cleanup" color="red">
+            <DeduplicateTool :user="user" />
+          </Accordion>
+        </template>
+        
       </div>
     </div>
 
-    <div v-if="!isAdmin || activeTab === 'membership'" class="animate-fade-in">
+    <div v-if="!isManagerOrAdmin || activeTab === 'membership'" class="animate-fade-in">
       
       <div v-if="!isViewingSelf" class="bg-blue-600 text-white p-3 rounded-t flex justify-between items-center shadow-lg transform translate-y-2 relative z-10">
         <span class="font-bold text-sm">

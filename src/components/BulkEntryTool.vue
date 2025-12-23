@@ -1,384 +1,424 @@
 <script setup>
-import { ref, watch, onMounted } from 'vue'
-import { collection, getDocs, addDoc, writeBatch, doc, query, where, collectionGroup } from "firebase/firestore"
+import { ref, onMounted, computed, watch } from 'vue'
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage"
+import { collection, addDoc, serverTimestamp, getDocs, updateDoc, deleteDoc, doc, query, where, collectionGroup } from "firebase/firestore"
 import { db, storage } from '../firebase'
-import MemberSearchInput from './MemberSearchInput.vue'
 
 const props = defineProps({
-  resumeSheet: Object
+  resumeSheet: Object,
+  currentUser: { type: Object, required: true }
 })
 
 const emit = defineEmits(['clear-resume'])
 
-const step = ref(1)
-const loading = ref(false)
-
-// Sheet Data
+// --- UPLOAD STATE ---
 const file = ref(null)
-const previewUrl = ref(null)
-const sheetData = ref({ date: '', event: '', sheetId: '' })
-const uploadSuccess = ref(false)
+const uploading = ref(false)
+const sheetName = ref('')
 
-// Entry Data
+// --- ENTRY STATE ---
 const members = ref([])
-const rows = ref([{ memberId: '', hours: '', activity: '' }])
+const loadingMembers = ref(false)
+const memberSearch = ref('')
+const selectedMemberId = ref('')
 
-// --- LOAD DATA ON RESUME ---
-watch(() => props.resumeSheet, async (newSheet) => {
-  if (newSheet) {
-    sheetData.value = {
-      date: newSheet.date,
-      event: newSheet.event || '',
-      sheetId: newSheet.sheetId,
-      imageUrl: newSheet.imageUrl
-    }
-    previewUrl.value = newSheet.imageUrl
+const entryDate = ref('')
+const entryHours = ref('')
+const entryActivity = ref('')
+const entryCategory = ref('standard')
+const sheetLogs = ref([]) 
 
-    loading.value = true
-    try {
-      const existingRows = []
+// --- CONFIGURATION ---
+const CATEGORIES = {
+  standard: { label: 'Standard Volunteer', multiplier: 1, isMaintenance: false },
+  trial:    { label: 'Trial Set Up / Tear Down', multiplier: 2, isMaintenance: false },
+  maint:    { label: 'General Maintenance', multiplier: 2, isMaintenance: true },
+  cleaning: { label: 'Cleaning', multiplier: 2, isMaintenance: true }
+}
 
-      // A. Fetch Active Logs
-      const qActive = query(collection(db, "logs"), where("sourceSheetId", "==", newSheet.sheetId))
-      const snapActive = await getDocs(qActive)
-      snapActive.forEach(d => {
-        const data = d.data()
-        existingRows.push({
-          logPath: `logs/${d.id}`,
-          memberId: data.memberId,
-          hours: data.hours,
-          activity: data.activity,
-          isExisting: true
-        })
-      })
-
-      // B. Fetch Legacy Logs
-      const qLegacy = query(collectionGroup(db, "legacyLogs"), where("sourceSheetId", "==", newSheet.sheetId))
-      const snapLegacy = await getDocs(qLegacy)
-
-      snapLegacy.forEach(d => {
-        const data = d.data()
-        const parentPath = d.ref.parent.parent
-        const legacyMemberId = parentPath ? parentPath.id : ""
-
-        existingRows.push({
-          logPath: d.ref.path,
-          memberId: legacyMemberId,
-          hours: data.hours,
-          activity: data.activity,
-          isExisting: true
-        })
-      })
-
-      // C. Set Rows
-      if (existingRows.length > 0) {
-        rows.value = [...existingRows, { memberId: '', hours: '', activity: newSheet.event || '' }]
-      } else {
-        rows.value = [{ memberId: '', hours: '', activity: newSheet.event || '' }]
-      }
-
-      step.value = 2
-    } catch (err) {
-      console.error(err)
-      alert("Error loading existing entries: " + err.message)
-    }
-    loading.value = false
+// --- INIT ---
+onMounted(() => {
+  fetchMembers()
+  if (props.resumeSheet) {
+    entryDate.value = new Date().toISOString().split('T')[0]
+    fetchSheetEntries() 
   }
-}, { immediate: true })
-
-// --- LOAD MEMBER LIST ---
-onMounted(async () => {
-  loading.value = true
-  const allMembers = []
-  const activeSnap = await getDocs(collection(db, "members"))
-  activeSnap.forEach(d => allMembers.push({
-    id: d.id,
-    name: `${d.data().lastName}, ${d.data().firstName}`,
-    type: 'active'
-  }))
-  
-  const legacySnap = await getDocs(collection(db, "legacy_members"))
-  legacySnap.forEach(d => {
-    if (d.data().lastName) {
-      allMembers.push({
-        id: d.id,
-        name: `${d.data().lastName}, ${d.data().firstName} (Legacy)`,
-        type: 'legacy'
-      })
-    }
-  })
-  allMembers.sort((a, b) => a.name.localeCompare(b.name))
-  members.value = allMembers
-  loading.value = false
 })
 
-const handleFileSelect = (e) => {
-  if (e.target.files[0]) {
-    file.value = e.target.files[0]
-    previewUrl.value = URL.createObjectURL(e.target.files[0])
-    const shortId = Math.floor(1000 + Math.random() * 9000)
-    sheetData.value.sheetId = `#${shortId}`
+watch(() => props.resumeSheet, (newVal) => {
+  if (newVal) {
+    entryDate.value = new Date().toISOString().split('T')[0]
+    fetchSheetEntries()
+  }
+})
+
+// --- 1. FETCH LOGS ---
+const fetchSheetEntries = async () => {
+  if (!props.resumeSheet) return
+  
+  sheetLogs.value = []
+  
+  const targetId = props.resumeSheet.sheetId || props.resumeSheet.id
+  
+  try {
+    const results = []
+
+    // QUERY A: Main Logs
+    const qMain = query(collection(db, "logs"), where("sourceSheetId", "==", targetId))
+    const snapMain = await getDocs(qMain)
+    snapMain.forEach(d => {
+      results.push({ ...d.data(), id: d.id, collection: 'logs' })
+    })
+
+    // QUERY B: Legacy Logs
+    const qLegacy = query(collectionGroup(db, "legacyLogs"), where("sourceSheetId", "==", targetId))
+    const snapLegacy = await getDocs(qLegacy)
+    snapLegacy.forEach(d => {
+      // Get parent ID for path reconstruction
+      const parentMemberId = d.ref.parent.parent ? d.ref.parent.parent.id : 'Unknown'
+      results.push({ 
+        ...d.data(), 
+        id: d.id, 
+        collection: 'legacyLogs',
+        memberId: parentMemberId
+      })
+    })
+
+    sheetLogs.value = results.sort((a,b) => {
+      const dateA = a.submittedAt?.seconds || 0
+      const dateB = b.submittedAt?.seconds || 0
+      return dateB - dateA
+    })
+
+  } catch (err) {
+    console.error("Error fetching sheet logs:", err)
   }
 }
 
-const resetUpload = () => {
-  uploadSuccess.value = false
-  file.value = null
-  previewUrl.value = null
-  const shortId = Math.floor(1000 + Math.random() * 9000)
-  sheetData.value = { date: '', event: '', sheetId: `#${shortId}` }
+// --- 2. UPLOAD LOGIC ---
+const handleFileSelect = (event) => {
+  file.value = event.target.files[0]
+  if (!sheetName.value && file.value) {
+    sheetName.value = `Sheet - ${new Date().toLocaleDateString()}`
+  }
 }
 
-const handleStartEntry = async () => {
-  if (!file.value || !sheetData.value.date) return alert("Please select a file and date.")
-  loading.value = true
+const handleUpload = async () => {
+  if (!file.value || !sheetName.value) return
+  uploading.value = true
 
   try {
-    const sRef = storageRef(storage, `sheets/${sheetData.value.date}_${sheetData.value.sheetId}`)
+    const sRef = storageRef(storage, `sheets/${Date.now()}_${file.value.name}`)
     await uploadBytes(sRef, file.value)
     const url = await getDownloadURL(sRef)
 
+    const uploaderName = `${props.currentUser.firstName} ${props.currentUser.lastName}`
+
     await addDoc(collection(db, "volunteer_sheets"), {
-      ...sheetData.value,
+      event: sheetName.value,          
       imageUrl: url,
-      uploadedAt: new Date(),
-      status: 'processing'
+      uploadedAt: serverTimestamp(),
+      uploadedBy: props.currentUser.email,
+      uploadedByName: uploaderName,    
+      status: 'pending',
+      sheetId: Date.now().toString()
     })
 
-    sheetData.value.imageUrl = url
-    uploadSuccess.value = true
+    alert("Upload Complete!")
+    file.value = null
+    sheetName.value = ''
   } catch (err) {
     console.error(err)
-    alert("Error uploading sheet: " + err.message)
+    alert("Upload failed: " + err.message)
   }
-  loading.value = false
+  uploading.value = false
 }
 
-const addRow = () => {
-  rows.value.push({ memberId: '', hours: '', activity: sheetData.value.event || '' })
+// --- 3. DATA ENTRY LOGIC ---
+
+const fetchMembers = async () => {
+  loadingMembers.value = true
+  try {
+    const combined = []
+    const memSnap = await getDocs(collection(db, "members"))
+    memSnap.forEach(d => combined.push({ id: d.id, ...d.data(), type: 'registered' }))
+    const legSnap = await getDocs(collection(db, "legacy_members"))
+    legSnap.forEach(d => combined.push({ id: d.id, ...d.data(), type: 'legacy', realId: d.id }))
+
+    combined.sort((a,b) => (a.lastName || "").localeCompare(b.lastName || ""))
+    members.value = combined
+  } catch (e) {
+    console.error("Error loading members", e)
+  }
+  loadingMembers.value = false
 }
 
-const removeRow = (index) => {
-  rows.value = rows.value.filter((_, i) => i !== index)
+const filteredMembers = computed(() => {
+  if (!memberSearch.value) return members.value
+  const s = memberSearch.value.toLowerCase()
+  return members.value.filter(m => 
+    m.lastName.toLowerCase().includes(s) || 
+    m.firstName.toLowerCase().includes(s) ||
+    (m.email && m.email.toLowerCase().includes(s))
+  )
+})
+
+const calculatedCredit = computed(() => {
+  const h = parseFloat(entryHours.value) || 0
+  const rule = CATEGORIES[entryCategory.value]
+  return h * rule.multiplier
+})
+
+const getMemberName = (id) => {
+  if (!id) return "Unknown Member (ID Missing)"
+  const m = members.value.find(mem => mem.id === id)
+  if (m) return `${m.lastName}, ${m.firstName}`
+  return `Unknown Member (${id})`
 }
 
-const handleCancel = () => {
-  step.value = 1
-  file.value = null
-  previewUrl.value = null
-  sheetData.value = { date: '', event: '', sheetId: '' }
-  rows.value = [{ memberId: '', hours: '', activity: '' }]
-  emit('clear-resume')
-}
+const handleAddLog = async () => {
+  if (!selectedMemberId.value || !entryDate.value || !entryHours.value || !entryActivity.value) {
+    alert("Please fill in all fields.")
+    return
+  }
 
-const handleSubmitAll = async () => {
-  const validRows = rows.value.filter(r => r.memberId && r.hours)
-  if (validRows.length === 0) return
+  const member = members.value.find(m => m.id === selectedMemberId.value)
+  if (!member) return
 
-  if (!window.confirm(`Ready to save changes to ${validRows.length} entries?`)) return
-  loading.value = true
+  const rule = CATEGORIES[entryCategory.value]
+  const finalHours = calculatedCredit.value
+  const sheetLinkID = props.resumeSheet.sheetId || props.resumeSheet.id
 
-  const batch = writeBatch(db)
-  let updateCount = 0
-  let createCount = 0
+  const newLog = {
+    date: entryDate.value,
+    hours: finalHours,
+    activity: entryActivity.value,
+    status: 'approved', 
+    isMaintenance: rule.isMaintenance,
+    sourceSheetId: sheetLinkID, 
+    memberId: member.id, 
+    submittedAt: new Date(),
+    history: [{
+      action: 'bulk_entry',
+      by: props.currentUser.email,
+      at: new Date().toISOString()
+    }]
+  }
 
-  validRows.forEach(row => {
-    if (row.isExisting && row.logPath) {
-      const logRef = doc(db, row.logPath)
-      batch.update(logRef, {
-        date: sheetData.value.date,
-        activity: row.activity,
-        hours: parseFloat(row.hours)
-      })
-      updateCount++
+  try {
+    let docRef
+    if (member.type === 'legacy') {
+      docRef = await addDoc(collection(db, "legacy_members", member.realId, "legacyLogs"), newLog)
     } else {
-      const memberInfo = members.value.find(m => m.id === row.memberId)
-      if (!memberInfo) return
-
-      let logRef
-      if (memberInfo.type === 'legacy') {
-        logRef = doc(collection(db, "legacy_members", row.memberId, "legacyLogs"))
-        batch.set(logRef, {
-          date: sheetData.value.date,
-          activity: row.activity,
-          hours: parseFloat(row.hours),
-          status: "approved",
-          sourceSheetId: sheetData.value.sheetId,
-          importedAt: new Date(),
-          applyToNextYear: false
-        })
-      } else {
-        logRef = doc(collection(db, "logs"))
-        batch.set(logRef, {
-          memberId: row.memberId,
-          date: sheetData.value.date,
-          activity: row.activity,
-          hours: parseFloat(row.hours),
-          status: "approved",
-          submittedAt: new Date(),
-          sourceSheetId: sheetData.value.sheetId,
-          applyToNextYear: false
-        })
-      }
-      createCount++
+      docRef = await addDoc(collection(db, "logs"), newLog)
     }
-  })
 
-  await batch.commit()
-  alert(`Success! Created ${createCount} new entries and updated ${updateCount} existing entries.`)
-  handleCancel()
-  loading.value = false
+    sheetLogs.value.unshift({
+      ...newLog,
+      id: docRef.id,
+      collection: member.type === 'legacy' ? 'legacyLogs' : 'logs',
+      memberId: member.id // Ensure local view has ID for name lookup
+    })
+
+    entryHours.value = ''
+    selectedMemberId.value = ''
+    memberSearch.value = ''
+    document.getElementById('memberSearchBox')?.focus()
+
+  } catch (err) {
+    console.error(err)
+    alert("Error saving log: " + err.message)
+  }
+}
+
+// --- NEW DELETE FUNCTION ---
+const handleDeleteLog = async (log) => {
+  if (!confirm("Delete this entry?")) return
+
+  try {
+    if (log.collection === 'legacyLogs') {
+       // Must delete from the specific subcollection
+       if (!log.memberId) throw new Error("Missing parent member ID for legacy log")
+       await deleteDoc(doc(db, "legacy_members", log.memberId, "legacyLogs", log.id))
+    } else {
+       // Standard log
+       await deleteDoc(doc(db, "logs", log.id))
+    }
+    
+    // Remove from UI
+    sheetLogs.value = sheetLogs.value.filter(l => l.id !== log.id)
+    
+  } catch (err) {
+    console.error(err)
+    alert("Delete failed: " + err.message)
+  }
+}
+
+const markSheetDone = async () => {
+  if (!confirm("Are you finished entering all names from this sheet?")) return
+  try {
+    await updateDoc(doc(db, "volunteer_sheets", props.resumeSheet.id), {
+      status: 'completed' 
+    })
+    alert("Sheet marked as complete!")
+    emit('clear-resume')
+  } catch (err) {
+    alert("Error updating sheet: " + err.message)
+  }
 }
 </script>
 
 <template>
-  <div class="p-6 bg-white rounded shadow mb-8 border border-gray-200">
-    <h2 class="text-xl font-bold mb-4 text-gray-800">
-      {{ resumeSheet ? `Resuming Entry for Sheet ${sheetData.sheetId}` : "Bulk Entry Tool (Handwritten Sheets)" }}
-    </h2>
-
-    <div v-if="step === 1" class="grid grid-cols-1 md:grid-cols-2 gap-8">
-      <div class="border-2 border-dashed border-gray-300 rounded p-8 text-center bg-gray-50 flex flex-col items-center justify-center">
-        <img v-if="previewUrl" :src="previewUrl" alt="Preview" class="max-h-64 border shadow" />
-        <div v-else class="text-gray-400">No image selected</div>
-
-        <input 
-          v-if="!uploadSuccess" 
-          type="file" 
-          @change="handleFileSelect" 
-          class="mt-4" 
-          accept="image/*" 
-          capture="environment" 
-        />
-      </div>
-
-      <div class="space-y-4">
-        <div v-if="uploadSuccess" class="bg-green-50 border border-green-200 rounded p-6 text-center">
-          <div class="text-4xl mb-2">✅</div>
-          <h3 class="text-xl font-bold text-green-800 mb-2">Sheet Uploaded!</h3>
-          <p class="text-green-700 mb-6">
-            Reference ID: <span class="font-mono font-black">{{ sheetData.sheetId }}</span>
-          </p>
-
-          <div class="space-y-3">
-            <button
-              @click="step = 2"
-              class="w-full bg-blue-600 text-white py-3 rounded font-bold hover:bg-blue-700"
-            >
-              Continue to Data Entry
-            </button>
-            <button
-              @click="resetUpload"
-              class="w-full bg-white text-gray-700 border border-gray-300 py-3 rounded font-bold hover:bg-gray-50"
-            >
-              Upload Another Sheet
-            </button>
-          </div>
+  <div class="bg-white rounded shadow border border-gray-200 overflow-hidden">
+    
+    <div v-if="!resumeSheet" class="p-6">
+      <h3 class="font-bold text-gray-700 mb-4">Upload New Sign-In Sheet</h3>
+      <div class="flex flex-col gap-4 max-w-lg">
+        <div>
+           <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Event / Sheet Name</label>
+           <input v-model="sheetName" placeholder="e.g. October Meeting..." class="w-full p-2 border rounded" />
         </div>
-        
-        <div v-else>
-          <div>
-            <label class="block text-xs font-bold text-gray-500 uppercase">Sheet Date</label>
-            <input type="date" class="w-full p-2 border rounded" v-model="sheetData.date" />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-gray-500 uppercase">Default Activity Name</label>
-            <input type="text" placeholder="e.g. Agility Trial Set Up" class="w-full p-2 border rounded" v-model="sheetData.event" />
-          </div>
-
-          <div v-if="sheetData.sheetId" class="bg-yellow-50 p-4 border border-yellow-200 rounded text-center my-4">
-            <p class="text-sm text-yellow-800 font-bold">Write this ID on the paper sheet:</p>
-            <p class="text-4xl font-mono font-black text-gray-800 mt-2">{{ sheetData.sheetId }}</p>
-          </div>
-
-          <button
-            @click="handleStartEntry"
-            :disabled="!file || loading"
-            class="w-full bg-blue-600 text-white py-3 rounded font-bold hover:bg-blue-700 disabled:opacity-50"
-          >
-            {{ loading ? "Uploading..." : "Upload Sheet" }}
-          </button>
+        <div class="border-2 border-dashed border-gray-300 rounded p-6 text-center hover:bg-gray-50 transition cursor-pointer relative">
+          <input type="file" @change="handleFileSelect" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer" />
+          <p v-if="file" class="font-bold text-green-600">{{ file.name }}</p>
+          <p v-else class="text-gray-500">Click to select photo or drag & drop</p>
         </div>
-      </div>
-    </div>
-
-    <div v-if="step === 2" class="flex flex-col gap-6">
-      <div class="w-full h-[400px] bg-gray-900 rounded flex items-center justify-center overflow-hidden relative group shrink-0">
-        <img :src="previewUrl" alt="Sheet" class="w-full h-full object-contain" />
-        <div class="absolute bottom-4 right-4 flex gap-2">
-          <a :href="previewUrl" target="_blank" class="bg-white px-3 py-1 rounded text-xs font-bold shadow hover:bg-gray-100">
-            Open Full Size
-          </a>
-        </div>
-      </div>
-
-      <div class="w-full flex flex-col bg-white border rounded p-4 shadow-sm">
-        <h3 class="font-bold text-gray-700 mb-2">Log Entries</h3>
-        
-        <div class="border rounded">
-          <table class="w-full text-left text-sm">
-            <thead class="bg-gray-100">
-              <tr>
-                <th class="p-2">Member</th>
-                <th class="p-2 w-24">Hours</th>
-                <th class="p-2">Activity</th>
-                <th class="p-2 w-12"></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr 
-                v-for="(row, i) in rows" 
-                :key="i" 
-                class="border-b" 
-                :class="{ 'bg-gray-50': row.isExisting }"
-                style="overflow: visible;" 
-              >
-                <td class="p-2 relative" :style="{ zIndex: 500 - i }">
-                  <MemberSearchInput
-                    :members="members"
-                    v-model="row.memberId"
-                    :disabled="row.isExisting"
-                  />
-                </td>
-                <td class="p-2">
-                  <input type="number" class="w-full p-2 border rounded" v-model="row.hours" />
-                </td>
-                <td class="p-2">
-                  <input type="text" class="w-full p-2 border rounded" v-model="row.activity" />
-                </td>
-                <td class="p-2 text-center">
-                  <button @click="removeRow(i)" class="text-red-500 hover:text-red-700 font-bold text-lg px-2">
-                    ×
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <button @click="addRow" class="mt-2 text-blue-600 text-sm font-bold hover:underline self-start">
-          + Add Row
+        <button 
+          @click="handleUpload" 
+          :disabled="!file || uploading || !sheetName"
+          class="bg-blue-600 text-white font-bold py-3 rounded hover:bg-blue-700 disabled:opacity-50"
+        >
+          {{ uploading ? "Uploading..." : "Upload & Begin Entry" }}
         </button>
+      </div>
+    </div>
 
-        <div class="pt-4 border-t mt-4 flex justify-between items-center">
-          <button @click="handleCancel" class="text-gray-500 px-4 py-2 hover:bg-gray-100 rounded">
-            Cancel
+    <div v-else class="flex flex-col h-[80vh]">
+      
+      <div class="bg-blue-50 p-3 border-b border-blue-200 flex justify-between items-center">
+        <div>
+          <h3 class="font-bold text-blue-900 text-sm">Working on: {{ resumeSheet.displayTitle || resumeSheet.event }}</h3>
+          <p class="text-xs text-blue-700">
+            Uploaded by {{ resumeSheet.uploadedByName || resumeSheet.uploadedBy }} | ID: {{ resumeSheet.sheetId }}
+          </p>
+        </div>
+        <div class="flex gap-2">
+          <button @click="markSheetDone" class="bg-green-600 text-white text-xs px-3 py-1 rounded font-bold hover:bg-green-700">
+            ✔ Finish Sheet
           </button>
-          <div class="text-right">
-            <p class="text-xs text-gray-400 mb-1 mr-1">
-              {{ rows.filter(r => r.memberId && r.hours).length }} valid entries
-            </p>
-            <button
-              @click="handleSubmitAll"
-              :disabled="loading"
-              class="bg-green-600 text-white px-8 py-3 rounded font-bold hover:bg-green-700 shadow"
-            >
-              {{ loading ? "Saving..." : "Submit Changes" }}
-            </button>
+          <button @click="$emit('clear-resume')" class="bg-white text-blue-600 border border-blue-300 text-xs px-3 py-1 rounded font-bold hover:bg-blue-50">
+            Exit
+          </button>
+        </div>
+      </div>
+
+      <div class="flex flex-1 overflow-hidden">
+        
+        <div class="w-1/2 bg-gray-900 p-4 flex items-center justify-center overflow-auto relative">
+          <img :src="resumeSheet.imageUrl" class="max-w-none shadow-lg border border-gray-700" style="min-width: 100%;" />
+        </div>
+
+        <div class="w-1/2 flex flex-col border-l border-gray-200 bg-gray-50">
+          
+          <div class="p-4 bg-white shadow-sm z-10 border-b">
+            <h4 class="font-bold text-gray-700 text-sm mb-3 uppercase tracking-wide">Add Entry</h4>
+            
+            <div class="space-y-3">
+              <div>
+                <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Member Search</label>
+                <div class="relative">
+                   <input 
+                     id="memberSearchBox"
+                     v-model="memberSearch" 
+                     placeholder="Type name..." 
+                     class="w-full p-2 border rounded border-blue-300 focus:ring-2 focus:ring-blue-200 outline-none" 
+                   />
+                   <select 
+                     v-model="selectedMemberId" 
+                     class="w-full mt-1 p-2 border rounded bg-white text-sm" 
+                     size="5"
+                   >
+                     <option v-for="m in filteredMembers" :key="m.id" :value="m.id">
+                       {{ m.lastName }}, {{ m.firstName }} ({{ m.type }})
+                     </option>
+                   </select>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                   <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Date</label>
+                   <input type="date" v-model="entryDate" class="w-full p-2 border rounded" />
+                </div>
+                <div>
+                   <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Category</label>
+                   <select v-model="entryCategory" class="w-full p-2 border rounded bg-white text-sm">
+                      <option value="standard">Standard (1x)</option>
+                      <option value="trial">Trial Setup (2x)</option>
+                      <option value="maint">Maintenance (2x + 🏆)</option>
+                      <option value="cleaning">Cleaning (2x + 🏆)</option>
+                   </select>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-3 gap-2">
+                <div class="col-span-2">
+                   <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Activity</label>
+                   <input v-model="entryActivity" placeholder="e.g. Attended Meeting" class="w-full p-2 border rounded" />
+                </div>
+                <div>
+                   <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Clock Hrs</label>
+                   <input type="number" step="0.25" v-model="entryHours" class="w-full p-2 border rounded" />
+                </div>
+              </div>
+
+              <div class="flex justify-between items-center pt-2">
+                 <div class="text-xs text-gray-500">
+                    Credit: <strong>{{ calculatedCredit }} hrs</strong>
+                    <span v-if="CATEGORIES[entryCategory].isMaintenance" class="text-green-600 font-bold ml-1">+ Blue Ribbon</span>
+                 </div>
+                 <button 
+                   @click="handleAddLog"
+                   class="bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700 shadow"
+                 >
+                   Add Row
+                 </button>
+              </div>
+
+            </div>
           </div>
+
+          <div class="flex-1 overflow-y-auto p-4 bg-gray-50">
+            <h4 class="font-bold text-gray-500 text-xs uppercase mb-2">Entries on this Sheet ({{ sheetLogs.length }})</h4>
+            
+            <div v-if="sheetLogs.length === 0" class="text-sm text-gray-400 italic text-center mt-10">
+              No entries found for this sheet ID.
+            </div>
+
+            <div v-else class="space-y-2">
+              <div v-for="(log, i) in sheetLogs" :key="i" class="bg-white p-3 rounded border border-gray-200 text-sm shadow-sm flex justify-between items-center">
+                 <div>
+                   <div class="font-bold text-gray-800">{{ getMemberName(log.memberId) }}</div>
+                   <div class="text-xs text-gray-500">{{ log.activity }}</div>
+                 </div>
+                 <div class="text-right">
+                   <div class="font-mono text-black font-bold">{{ log.hours }}h</div>
+                   <div v-if="log.isMaintenance" class="text-[10px] text-green-600 font-bold uppercase">Blue Ribbon</div>
+                   
+                   <button 
+                     @click="handleDeleteLog(log)" 
+                     class="text-xs text-red-400 hover:text-red-700 hover:underline mt-1 block w-full text-right"
+                   >
+                     Delete
+                   </button>
+                 </div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
+
   </div>
 </template>

@@ -23,7 +23,6 @@ const viewingHistory = ref(null)
 const CATEGORIES = {
   standard: { label: 'Standard Volunteer', multiplier: 1, isMaintenance: false },
   trial:    { label: 'Trial Set Up / Tear Down', multiplier: 2, isMaintenance: false },
-  // UPDATED: Multiplier changed from 1 to 2
   maint:    { label: 'General Maintenance', multiplier: 2, isMaintenance: true },
   cleaning: { label: 'Cleaning', multiplier: 2, isMaintenance: true }
 }
@@ -55,6 +54,7 @@ const calculatedCredit = computed(() => {
 })
 
 const isBlueRibbon = computed(() => CATEGORIES[category.value].isMaintenance)
+const isStaff = computed(() => props.currentUserRole === 'admin' || props.currentUserRole === 'manager')
 
 // --- DB REFS ---
 const getCollectionRef = () => {
@@ -90,7 +90,6 @@ const fetchLogs = async () => {
       data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
     }
     
-    // Sort by date descending
     data.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
     logs.value = data
   } catch (err) {
@@ -103,15 +102,31 @@ watch(() => props.user, fetchLogs, { immediate: true })
 
 const handleViewSheet = async (sheetId) => {
   try {
+    // Search by the custom 'sheetId' field
     const q = query(collection(db, "volunteer_sheets"), where("sheetId", "==", sheetId))
     const snap = await getDocs(q)
     if (!snap.empty) {
       sheetPreview.value = snap.docs[0].data()
     } else {
-      alert("Original sheet record not found.")
+      alert(`Sheet with ID "${sheetId}" not found in database.`)
     }
   } catch (err) {
     alert("Error fetching sheet: " + err.message)
+  }
+}
+
+// --- NEW: LINK LOG TO SHEET ---
+const handleLinkSheet = async (log) => {
+  const input = prompt("Enter the Sheet ID to link this log to (e.g., #8949):")
+  if (!input) return
+
+  try {
+    await updateDoc(getDocRef(log.id), { sourceSheetId: input.trim() })
+    // Update local state
+    const target = logs.value.find(l => l.id === log.id)
+    if (target) target.sourceSheetId = input.trim()
+  } catch (err) {
+    alert("Error linking: " + err.message)
   }
 }
 
@@ -132,8 +147,8 @@ const handleSubmit = async () => {
   const finalHours = calculatedCredit.value
   const maintenanceFlag = isBlueRibbon.value
   
-  const isAdmin = props.currentUserRole === 'admin'
-  const newStatus = isAdmin ? 'approved' : 'pending'
+  const autoApprove = isStaff.value
+  const newStatus = autoApprove ? 'approved' : 'pending'
 
   // Daily Limit Check
   const existingLogsForDate = logs.value.filter(l => 
@@ -206,7 +221,7 @@ const handleSubmit = async () => {
     activity.value = ''
     category.value = 'standard'
     
-    if (!isAdmin) alert("Hours submitted for approval.")
+    if (!autoApprove) alert("Hours submitted for approval.")
     fetchLogs()
   } catch (err) {
     console.error("Error saving log:", err)
@@ -355,9 +370,9 @@ const maintenanceStats = computed(() => {
           <tr>
             <th class="p-3 text-sm font-semibold text-gray-700">Date</th>
             <th class="p-3 text-sm font-semibold text-gray-700">Activity</th>
-            <th class="p-3 text-sm font-semibold text-gray-700 text-right">Credited Hours</th>
+            <th class="p-3 text-sm font-semibold text-gray-700 text-right">Credited</th>
             <th class="p-3 text-sm font-semibold text-gray-700">Status</th>
-            <th v-if="currentUserRole === 'admin'" class="p-3 text-sm font-semibold text-gray-700 text-center">Roll Over</th>
+            <th v-if="isStaff" class="p-3 text-sm font-semibold text-gray-700 text-center">Rollover</th>
             <th class="p-3 text-sm font-semibold text-gray-700">Actions</th>
           </tr>
         </thead>
@@ -394,7 +409,7 @@ const maintenanceStats = computed(() => {
               </span>
              </td>
              
-             <td v-if="currentUserRole === 'admin'" class="p-3 text-center">
+             <td v-if="isStaff" class="p-3 text-center">
                <input 
                  type="checkbox" 
                  :checked="log.applyToNextYear || false" 
@@ -408,12 +423,21 @@ const maintenanceStats = computed(() => {
               <button @click="handleDelete(log)" class="text-red-600 hover:underline mr-3">Delete</button>
               
               <button 
-                v-if="currentUserRole === 'admin' && log.sourceSheetId"
+                v-if="isStaff && log.sourceSheetId"
                 @click="handleViewSheet(log.sourceSheetId)"
                 class="text-purple-600 hover:text-purple-800 text-xs border border-purple-200 px-2 py-1 rounded bg-purple-50 mr-2"
                 :title="'View Source Sheet ' + log.sourceSheetId"
               >
                 📄 {{ log.sourceSheetId }}
+              </button>
+
+              <button 
+                v-if="isStaff && !log.sourceSheetId"
+                @click="handleLinkSheet(log)"
+                class="text-gray-400 hover:text-purple-600 text-xs border border-dashed border-gray-300 px-2 py-1 rounded hover:bg-purple-50 mr-2"
+                title="Manually Link to Sheet"
+              >
+                🔗 Link
               </button>
               
               <button 
@@ -422,7 +446,7 @@ const maintenanceStats = computed(() => {
                 class="text-gray-500 hover:text-gray-700 text-xs border border-gray-300 px-2 py-1 rounded bg-white"
                 title="View Edit History"
               >
-                🕒 History
+                🕒
               </button>
              </td>
           </tr>
