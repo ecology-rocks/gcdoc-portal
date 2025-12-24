@@ -4,7 +4,13 @@ This is my app to deal with dog club stuff. I'll be working on improvements unti
 
 ## Bug Fixes & QOL Improvements
 
-### Phase 3: The "Classes & Dogs" Module (Major Expansion)
+
+### Kiosk Mode
+*Focus: Develop a kiosk mode so that we can have online sign in and sign out.*
+1. Standard Kiosk View: Volunteer Sign-in and Out, link to Event view
+2. Event Kiosk View: Start event, volunteer sign in or participant sign up flow, with waiver signing
+
+### The "Classes & Dogs" Module (Major Expansion)
 *Focus: The new functionality for classes, dogs, and non-members (User Requirement #4).*
 
 This requires a database schema expansion. We should stop storing everything on the "Member" object and start using dedicated collections.
