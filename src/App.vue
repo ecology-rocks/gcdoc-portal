@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { onAuthStateChanged, signOut } from "firebase/auth"
-import { doc, getDoc, setDoc } from "firebase/firestore" // <--- Added setDoc
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore" // <--- Added serverTimestamp
 import { auth, db } from './firebase'
 
 // COMPONENTS
@@ -17,13 +17,8 @@ const loading = ref(true)
 const currentPath = ref(window.location.pathname)
 const isKiosk = ref(window.location.pathname === '/kiosk')
 
-// --- EMERGENCY LOGOUT ---
 const emergencySignOut = async () => {
-  try {
-    await signOut(auth)
-  } catch (e) {
-    console.error(e)
-  }
+  try { await signOut(auth) } catch (e) { console.error(e) }
   window.location.reload()
 }
 
@@ -44,18 +39,21 @@ onMounted(() => {
         } else {
           // --- AUTO-FIX: Create missing profile ---
           console.warn("User exists in Auth but missing in DB. creating profile...")
+          
           const newProfile = { 
             uid: currentUser.uid, 
             email: currentUser.email, 
-            role: 'member', // Default to basic member
+            role: 'member', 
             firstName: 'New',
             lastName: 'Member',
             status: 'Active',
-            createdAt: new Date()
+            createdAt: serverTimestamp() // <--- FIX: Use Server Timestamp
           }
-          // We can do this now because we updated the Rules to allow self-creation!
+          
           await setDoc(docRef, newProfile)
-          userProfile.value = newProfile
+          
+          // Manually set the date for local view since serverTimestamp is async
+          userProfile.value = { ...newProfile, createdAt: new Date() }
         }
         user.value = userProfile.value
       } else {
@@ -64,9 +62,9 @@ onMounted(() => {
       }
     } catch (err) {
       console.error("Auth Load Error:", err)
-      // Even if error, ensure we turn off loading so Emergency Sign Out is visible
+      alert("Error loading profile: " + err.message) // Alert user so they know why it failed
     } finally {
-      loading.value = false
+      loading.value = false // <--- Ensure this ALWAYS runs
     }
   })
 })
@@ -75,29 +73,18 @@ onMounted(() => {
 <template>
   <div v-if="loading" class="h-screen flex flex-col items-center justify-center bg-gray-100 gap-6">
     <div class="text-2xl font-bold text-gray-600 animate-pulse">Loading Profile...</div>
-    
-    <button 
-      @click="emergencySignOut" 
-      class="bg-white border-2 border-red-400 text-red-600 px-6 py-3 rounded-lg shadow hover:bg-red-50 font-bold transition"
-    >
+    <button @click="emergencySignOut" class="bg-white border-2 border-red-400 text-red-600 px-6 py-3 rounded-lg shadow hover:bg-red-50 font-bold transition">
       ⚠️ Emergency Sign Out
     </button>
   </div>
 
   <div v-else>
-    
     <Login v-if="!user" />
-
     <KioskMode v-else-if="isKiosk" />
-
     <Dashboard v-else :user="user" />
-
   </div>
 </template>
 
 <style>
-body {
-  margin: 0;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-}
+body { margin: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
 </style>
