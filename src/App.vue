@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { onAuthStateChanged, signOut } from "firebase/auth" // <--- Import signOut
-import { doc, getDoc } from "firebase/firestore"
+import { onAuthStateChanged, signOut } from "firebase/auth"
+import { doc, getDoc, setDoc } from "firebase/firestore" // <--- Added setDoc
 import { auth, db } from './firebase'
 
 // COMPONENTS
@@ -19,8 +19,12 @@ const isKiosk = ref(window.location.pathname === '/kiosk')
 
 // --- EMERGENCY LOGOUT ---
 const emergencySignOut = async () => {
-  await signOut(auth)
-  window.location.reload() // Force reload to clear state
+  try {
+    await signOut(auth)
+  } catch (e) {
+    console.error(e)
+  }
+  window.location.reload()
 }
 
 onMounted(() => {
@@ -29,19 +33,29 @@ onMounted(() => {
   })
 
   onAuthStateChanged(auth, async (currentUser) => {
-    // Wrap in try/catch so errors don't freeze the app on "Loading..."
+    loading.value = true
     try {
       if (currentUser) {
-        const snap = await getDoc(doc(db, "members", currentUser.uid))
+        const docRef = doc(db, "members", currentUser.uid)
+        const snap = await getDoc(docRef)
+        
         if (snap.exists()) {
           userProfile.value = { ...snap.data(), uid: currentUser.uid }
         } else {
-          userProfile.value = { 
+          // --- AUTO-FIX: Create missing profile ---
+          console.warn("User exists in Auth but missing in DB. creating profile...")
+          const newProfile = { 
             uid: currentUser.uid, 
             email: currentUser.email, 
-            role: 'member', 
-            firstName: 'Member' 
+            role: 'member', // Default to basic member
+            firstName: 'New',
+            lastName: 'Member',
+            status: 'Active',
+            createdAt: new Date()
           }
+          // We can do this now because we updated the Rules to allow self-creation!
+          await setDoc(docRef, newProfile)
+          userProfile.value = newProfile
         }
         user.value = userProfile.value
       } else {
@@ -50,8 +64,7 @@ onMounted(() => {
       }
     } catch (err) {
       console.error("Auth Load Error:", err)
-      // Even if there is an error, we stop loading so the user can see *something*
-      // (or use the emergency button)
+      // Even if error, ensure we turn off loading so Emergency Sign Out is visible
     } finally {
       loading.value = false
     }
@@ -61,13 +74,13 @@ onMounted(() => {
 
 <template>
   <div v-if="loading" class="h-screen flex flex-col items-center justify-center bg-gray-100 gap-6">
-    <div class="text-xl font-bold text-gray-400 animate-pulse">Loading App...</div>
+    <div class="text-2xl font-bold text-gray-600 animate-pulse">Loading Profile...</div>
     
     <button 
       @click="emergencySignOut" 
-      class="text-xs text-red-500 hover:text-red-700 underline"
+      class="bg-white border-2 border-red-400 text-red-600 px-6 py-3 rounded-lg shadow hover:bg-red-50 font-bold transition"
     >
-      Stuck? Click here to Emergency Sign Out
+      ⚠️ Emergency Sign Out
     </button>
   </div>
 
