@@ -74,68 +74,28 @@ const copyEmail = async (email) => {
   }
 }
 
+// --- FIXED SYNC PROFILE FUNCTION ---
 const syncProfile = async () => {
+  if (!props.user) return
+  error.value = null
+
   try {
-    if (!props.user) return
-
-    // STEP 1: Check for Legacy Data
-    const legacyQuery = query(collection(db, "legacy_members"), where("email", "==", props.user.email))
-    const legacySnap = await getDocs(legacyQuery)
-
-    if (!legacySnap.empty) {
-      console.log("Found legacy data. Merging...")
-      const batch = writeBatch(db)
-      let foundProfileData = null
-
-      for (const legacyDoc of legacySnap.docs) {
-        const legacyData = legacyDoc.data()
-        if (!foundProfileData) foundProfileData = legacyData
-
-        const legacyLogsRef = collection(db, "legacy_members", legacyDoc.id, "legacyLogs")
-        const legacyLogsSnap = await getDocs(legacyLogsRef)
-
-        legacyLogsSnap.forEach(logDoc => {
-          const newLogRef = doc(collection(db, "logs"))
-          batch.set(newLogRef, {
-            ...logDoc.data(),
-            memberId: props.user.uid,
-            status: "approved",
-            importedAt: new Date()
-          })
-        })
-        batch.delete(legacyDoc.ref)
-      }
-
-      if (foundProfileData) {
-        const profileRef = doc(db, "members", props.user.uid)
-        // eslint-disable-next-line no-unused-vars
-        const { legacyLogs, legacyKey, ...validProfileData } = foundProfileData
-
-        batch.set(profileRef, {
-          ...validProfileData,
-          email: props.user.email,
-          uid: props.user.uid
-        }, { merge: true })
-
-        memberData.value = {
-          ...validProfileData,
-          email: props.user.email,
-          uid: props.user.uid
-        }
-      }
-
-      await batch.commit()
-      alert("Success! We found your old volunteer hours and moved them to your new account.")
-      return
-    }
-
-    // STEP 2: Normal Load (No legacy data found)
+    // 1. LOAD PROFILE FIRST (This ensures the UI always loads)
     const docRef = doc(db, "members", props.user.uid)
-    const docSnap = await getDoc(docRef)
+    let docSnap = null
+
+    try {
+      docSnap = await getDoc(docRef)
+    } catch (readErr) {
+      // If we can't read our own profile, something is critically wrong with Rules
+      console.error("Critical Profile Read Error:", readErr)
+      throw readErr 
+    }
 
     if (docSnap.exists()) {
       memberData.value = { ...docSnap.data(), uid: props.user.uid }
     } else {
+      // Create new profile if missing
       const newProfile = {
         email: props.user.email,
         firstName: "New",
@@ -147,11 +107,66 @@ const syncProfile = async () => {
       memberData.value = { ...newProfile, uid: props.user.uid }
     }
 
-  } catch (err) {
-    console.error("Error syncing profile:", err)
-    if (err.code !== 'permission-denied') {
-      error.value = err.message
+    // 2. CHECK FOR LEGACY DATA (Merge attempt)
+    // We wrap this in a try/catch so if it fails (permissions), it doesn't crash the whole app
+    try {
+      const legacyQuery = query(collection(db, "legacy_members"), where("email", "==", props.user.email))
+      const legacySnap = await getDocs(legacyQuery)
+
+      if (!legacySnap.empty) {
+        console.log("Found legacy data. Merging...")
+        const batch = writeBatch(db)
+        let foundProfileData = null
+
+        for (const legacyDoc of legacySnap.docs) {
+          const legacyData = legacyDoc.data()
+          if (!foundProfileData) foundProfileData = legacyData
+
+          const legacyLogsRef = collection(db, "legacy_members", legacyDoc.id, "legacyLogs")
+          const legacyLogsSnap = await getDocs(legacyLogsRef)
+
+          legacyLogsSnap.forEach(logDoc => {
+            const newLogRef = doc(collection(db, "logs"))
+            batch.set(newLogRef, {
+              ...logDoc.data(),
+              memberId: props.user.uid,
+              status: "approved",
+              importedAt: new Date()
+            })
+          })
+          batch.delete(legacyDoc.ref)
+        }
+
+        if (foundProfileData) {
+          const profileRef = doc(db, "members", props.user.uid)
+          // eslint-disable-next-line no-unused-vars
+          const { legacyLogs, legacyKey, ...validProfileData } = foundProfileData
+
+          batch.set(profileRef, {
+            ...validProfileData,
+            email: props.user.email,
+            uid: props.user.uid
+          }, { merge: true })
+
+          // Update local state to reflect the merge
+          memberData.value = {
+            ...validProfileData,
+            email: props.user.email,
+            uid: props.user.uid
+          }
+        }
+
+        await batch.commit()
+        alert("Success! We found your old volunteer hours and moved them to your new account.")
+      }
+    } catch (legacyErr) {
+      console.warn("Legacy merge check failed (likely permissions). Skipping.", legacyErr)
+      // We do NOT throw here. We just let the user proceed with their empty profile.
     }
+
+  } catch (err) {
+    console.error("Error loading profile:", err)
+    error.value = err.message
   }
 }
 
@@ -172,8 +187,15 @@ const clearResume = () => {
 </script>
 
 <template>
-  <div v-if="error" class="p-6 text-red-600">Error: {{ error }}</div>
-  <div v-else-if="!memberData" class="p-6">Loading profile...</div>
+  <div v-if="error" class="p-6 text-red-600 bg-red-50 border-l-4 border-red-600">
+    <h3 class="font-bold">Error Loading Dashboard</h3>
+    <p>{{ error }}</p>
+    <button @click="handleSignOut" class="mt-4 underline">Sign Out</button>
+  </div>
+  
+  <div v-else-if="!memberData" class="p-6 flex items-center justify-center h-64">
+    <div class="text-xl text-gray-400 animate-pulse">Loading profile...</div>
+  </div>
 
   <div v-else class="p-6 max-w-4xl mx-auto">
     
