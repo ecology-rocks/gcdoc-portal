@@ -4,19 +4,6 @@ This is my app to deal with dog club stuff. I'll be working on improvements unti
 
 ## Bug Fixes & QOL Improvements
 
-### Phase 1: Roles & Permissions Upgrade
-*Focus: Security and the new "Team Lead" role.*
-
-1. The "Team Lead" Role (User Requirement #5)
- - Current State: Binary roles (Admin or Member).
- - Action: Introduce a lead role.
-     - Database: Update firestore.rules (if you use them) or app logic to allow leads to write to the volunteer_sheets collection.
-     - UI: In Dashboard.vue, conditionally render the BulkEntryTool for leads.
-     - Restriction: Update SheetArchive.vue to only show sheets where uploadedBy == currentUser.uid (unless the user is a full Admin).
-
-2. Granular Permissions
- - Action: Instead of checking role === 'admin', create a utility checkPermission(user, 'can_approve_logs'). This makes it easier to let Team Leads do specific admin tasks later without giving them keys to the kingdom.
-
 ### Phase 3: The "Classes & Dogs" Module (Major Expansion)
 *Focus: The new functionality for classes, dogs, and non-members (User Requirement #4).*
 
