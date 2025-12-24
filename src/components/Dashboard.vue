@@ -16,6 +16,7 @@ import SheetArchive from './SheetArchive.vue'
 import Accordion from './Accordion.vue'
 import NewMemberForm from './NewMemberForm.vue'
 import LegacyLinkTool from './LegacyLinkTool.vue'
+import QuickMemberSearch from './QuickMemberSearch.vue'
 
 const props = defineProps({
   user: {
@@ -33,7 +34,7 @@ const resumeSheet = ref(null)
 const refreshKey = ref(0) 
 
 // UI State
-const activeTab = ref('membership') // 'membership' or 'admin'
+const activeTab = ref('membership') 
 const emailCopyStatus = ref('') 
 
 // Computed properties
@@ -229,8 +230,14 @@ const clearResume = () => {
         
         <Accordion title="📝 Bulk Entry (Handwritten Sheets)" color="gray" :defaultOpen="!!resumeSheet">
           <BulkEntryTool
-            :resumeSheet="resumeSheet" :currentUser="user" @clear-resume="clearResume" />
-          <SheetArchive :currentUser="user" @resume="(sheet) => resumeSheet = sheet" />
+            :resumeSheet="resumeSheet"
+            :currentUser="user" 
+            @clear-resume="clearResume"
+          />
+          <SheetArchive 
+            :currentUser="user" 
+            @resume="(sheet) => resumeSheet = sheet" 
+          />
         </Accordion>
 
         <Accordion title="👤 Log Hours for Others" color="blue">
@@ -263,6 +270,10 @@ const clearResume = () => {
 
     <div v-if="!isManagerOrAdmin || activeTab === 'membership'" class="animate-fade-in">
       
+      <div v-if="isManagerOrAdmin" class="mb-6 flex justify-end">
+         <QuickMemberSearch @select="handleAdminSelectUser" />
+      </div>
+
       <div v-if="!isViewingSelf" class="bg-blue-600 text-white p-3 rounded-t flex justify-between items-center shadow-lg transform translate-y-2 relative z-10">
         <span class="font-bold text-sm">
           👁️ Viewing: {{ activeUser.firstName }} {{ activeUser.lastName }}
@@ -328,11 +339,18 @@ const clearResume = () => {
           </div>
 
           <div class="bg-gray-50 p-3 rounded border border-gray-100">
-            <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Status</label>
+            <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Details</label>
+            
+            <div class="flex justify-between items-center mb-1">
+              <span class="text-gray-600 text-sm">Status:</span>
+              <span class="font-bold text-gray-800">{{ activeUser.status || 'Active' }}</span>
+            </div>
+
             <div class="flex justify-between items-center mb-1">
               <span class="text-gray-600 text-sm">Type:</span>
               <span class="font-bold text-gray-800">{{ activeUser.membershipType || "Regular" }}</span>
             </div>
+            
             <div class="flex justify-between items-center">
               <span class="text-gray-600 text-sm">Role:</span>
               <span class="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded capitalize">{{ activeUser.role }}</span>
