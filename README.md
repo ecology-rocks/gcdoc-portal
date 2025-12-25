@@ -1,37 +1,176 @@
-# GCDOC Portal
+# **GCDOC Portal**
+A unified management platform for Gem City Dog Obedience Club, supporting multiple sports, event scheduling, and facility maintenance.
 
-This is my app to deal with dog club stuff. I'll be working on improvements until I can use it as a full fledged system. This README will serve as my list of action items and Roadmap for improvements.
+## **Roadmap: The "Club Hub" Expansion (Current Priority)**
 
-## Bug Fixes & QOL Improvements
+We are refactoring the application to move beyond simple member management into a full Volunteer Scheduling and Facility Management system. This allows us to coordinate shared resources (volunteers, physical locations) across different sports.
 
+### **1. Database Schema Updates**
 
-### Kiosk Mode
-*Focus: Develop a kiosk mode so that we can have online sign in and sign out.*
-1. Standard Kiosk View: Volunteer Sign-in and Out, link to Event view
-2. Event Kiosk View: Start event, volunteer sign in or participant sign up flow, with waiver signing
+*Focus: Enabling complex scheduling for Practices (Recurring) and Trials (Shifts).*
 
-### The "Classes & Dogs" Module (Major Expansion)
-*Focus: The new functionality for classes, dogs, and non-members (User Requirement #4).*
+* **events (New Collection)**  
+  * **Core Fields:** title, start, end, location, needsVolunteers.  
+  * **volunteerConfig Map:**  
+    * *Recurring Mode:* Defines patterns (e.g., "We need 2 Gate Stewards every Tuesday at 7pm").  
+    * *Shift Mode:* Defines specific slots (e.g., "We need 1 Scribe on Oct 12th from 8am-12pm").  
+* **volunteer\_availability (New Collection)**  
+  * Monthly submission record for volunteers.  
+  * Tracks **General Availability** (e.g., "I can do any Tuesday") vs **Specific Dates**.  
+* **logs (Existing)**  
+  * No schema changes.  
+  * We will leverage the existing category field ('Standard', 'Maintenance', 'Cleaning') for facility reporting.
 
-This requires a database schema expansion. We should stop storing everything on the "Member" object and start using dedicated collections.
+### **2. New & Updated Views**
 
-1. New Data Tables (Collections)
+#### **Manager Tools**
 
- - dogs: Linked to a ownerId. Contains fields: name, breed, immunizationStatus, immunizationDate.
- - sessions: e.g., "Fall 2025". Contains startDate, endDate.
- - classes: Linked to a sessionId. Contains instructorId, name (e.g., "Puppy 101"), maxStudents.
- - registrations: The "join" table. Links classId, dogId, studentId. This is where "Instructor Notes" live (private to instructor/admin).
+* **ManagerLogView.vue (New):**  
+  * Read-only table for Admins/Managers.  
+  * Filters to isolate "Maintenance" and "Cleaning" logs from general volunteer hours.  
+  * Date range filtering.  
+* **EventCreator.vue (Update/New):**  
+  * Add toggle for needsVolunteers.  
+  * Build UI to define **Recurring Patterns** (Days of Week \+ Roles) or **One-Off Shifts**.
 
-2. Non-Member Logic
+#### **Volunteer Tools**
 
- - Challenge: You want to add non-members to classes.
- - Solution: Create a participants collection.
-     - A "Member" is just a Participant who pays dues and has a login.
-     - A "Non-Member" is a Participant profile created by an Admin/Instructor that has contact info and dogs but no login (yet).
+* **VolunteerAvailabilityForm.vue (New):**  
+  * The "Monthly Signup" dashboard.  
+  * Allows volunteers to select a month and input availability based on that month's event patterns.
 
-3. Instructor Views
+### **3. Kiosk Mode Enhancements**
 
- - Action: Create an InstructorDashboard.vue.
-     - Shows their active classes.
-     - Clicking a class shows the "Roster" (list of dogs/humans).
-     - Allows adding private notes to a specific dog's registration record.
+* **Event Integration:**  
+  * Update Kiosk to query the new events collection for "Today's Events".  
+  * Allow signing into a specific Event (Practice/Trial) vs General Maintenance.
+  * Allow signing in as a participant and also as a volunteer.
+
+## **Future Phase: The "Classes & Dogs" Module**
+
+*Focus: Detailed class registration and dog tracking.*
+
+**(Deferred until Volunteer Scheduling is stable)**
+
+This requires a database schema expansion to stop storing everything on the "Member" object.
+
+1. **Future Data Tables (Collections)**  
+   * dogs: Linked to ownerId. Fields: name, breed, barnHuntNumber, heightClass.  
+   * sessions: e.g., "Fall 2025".  
+   * classes: Linked to sessionId.  
+   * registrations: The join table.  
+2. **Non-Member Logic**  
+   * Creating "Participant" profiles for non-members who take classes or attend trials but do not pay annual dues.
+
+## **Bug Fixes & QOL Improvements (Backlog)**
+
+* Standardize Kiosk View routing.  
+* Mobile styling tweaks for the Admin Dashboard.
+
+--------
+
+# **Schema Migration Plan: Gem City Club Portal (Revised V4)**
+
+**Goal:** Extend the existing app to support Barn Hunt and general facility maintenance using existing structures where possible.
+
+## **1. Modifications to Existing Collections**
+
+### **1.1 logs (Volunteer Logs)**
+
+* **Current State:** category field already exists (Standard, Trial Set Up / Tear Down, Cleaning, Maintenance).  
+* **Action Required:** None for data entry.  
+* **New View:** ManagerLogView.vue  
+  * A read-only table for Managers to filter existing logs by category and date range.
+
+### **1.2 events (New Collection)**
+
+This collection drives the Public Calendar and the Volunteer Scheduling system.
+
+* **Core Fields**  
+  * id: (Auto-ID)  
+  * title: String (e.g., "Barn Hunt Practice", "Oct Trial", "Board Meeting")  
+  * description: String  
+  * start: Timestamp (Date and Time of the event start)  
+  * end: Timestamp (Date and Time of the event end)  
+  * location: String (Free text, e.g., "Main Hall" or "Barn")  
+  * needsVolunteers: Boolean (If false, no signup logic runs)  
+* **Scheduling Logic (volunteerConfig Map)**  
+  * *Only present if needsVolunteers is true.*  
+  * Scenario A: Recurring (e.g., Monthly Practices)  
+    Used when the event represents a "block" of time (like a whole month of practices) or a recurring series.  
+    ```
+    {  
+      mode: 'recurring', // 'recurring' | 'shifts'  
+      // Define the pattern managers need help with  
+      patterns: \[  
+         {   
+           day: 'Tuesday', // 'Monday', 'Tuesday', etc.  
+           time: '19:00',  // 24hr format  
+           roles: \['Gate', 'Scribe'\], // Array of needed roles  
+           slotsPerRole: 2   
+         },  
+         {   
+           day: 'Friday',   
+           time: '14:00',   
+           roles: \['Setup'\],  
+           slotsPerRole: 4  
+         }  
+      \]  
+    }
+    ```
+
+  * Scenario B: One-Time (e.g., Trials)  
+    Used for specific dates where distinct shifts are defined. 
+    ``` 
+    {  
+      mode: 'shifts',  
+      shifts: \[  
+         {   
+           id: 's1', // distinct ID for claiming  
+           role: 'Scribe',   
+           start: '08:00', // Time relative to event date  
+           end: '12:00',   
+           slots: 1,  
+           claimedBy: \['uid123'\] // Array of user IDs  
+         },  
+         {   
+           id: 's2',   
+           role: 'Gate Steward',   
+           start: '08:00',   
+           end: '12:00',   
+           slots: 1,  
+           claimedBy: \[\]   
+         }  
+      \]  
+    }
+    ```
+
+## **2. New Collections**
+
+### **2.1 volunteer\_availability**
+
+Handles the "Supply" side of the scheduling equation.
+
+* id: ${year}\_${month}\_${userId}  
+* userId: String (FK)  
+* monthStr: String ('2025-10')  
+* generalAvailability: Map  
+  * Matches the Recurring Patterns (e.g., { 'Tuesday\_19:00': 'any' }).  
+* specificDates: Array\<Timestamp\>  
+  * Used if the volunteer specifies exact dates only.
+
+## **3. Code Refactoring Priorities**
+
+1. **ManagerLogView.vue (New)**  
+   * **Purpose:** Allow Managers/Admin to audit the "Cleaning" and "Maintenance" logs without wading through general volunteer hours.  
+   * **Features:** Date picker, Category Filter, Export to CSV.  
+2. **EventCreator.vue (Update)**  
+   * **Purpose:** Allow Managers to define volunteer needs.  
+   * **Update:** Add "Needs Volunteers" toggle.  
+   * **Update:** Add UI for defining Shifts (for Trials) or Recurring Patterns (for Practices).  
+3. **VolunteerAvailabilityForm.vue (New)**  
+   * **Purpose:** Allow volunteers to submit their monthly availability.  
+   * **Features:**  
+     * Dropdown: Select Month.  
+     * Dynamic Inputs: Based on the "Recurring Patterns" found in that month's events.  
+     * Calendar View: To select/deselect specific dates.

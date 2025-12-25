@@ -7,6 +7,7 @@ import { db, auth } from '../firebase'
 // Child components
 import VolunteerLogs from './VolunteerLogs.vue'
 import ProfileEditor from './ProfileEditor.vue'
+import ManagerLogView from './ManagerLogView.vue' // <--- ADD THIS
 import AdminDataTools from './AdminDataTools.vue'
 import AdminMemberSelect from './AdminMemberSelect.vue'
 import DeduplicateTool from './DeduplicateTool.vue'
@@ -249,6 +250,10 @@ const clearResume = () => {
       </div>
 
       <div class="grid gap-6">
+
+<Accordion title="📊 Volunteer Log Audit" color="indigo">
+  <ManagerLogView :currentUserRole="memberData.role" />
+</Accordion>
         
         <Accordion title="📝 Bulk Entry (Handwritten Sheets)" color="gray" :defaultOpen="!!resumeSheet">
           <BulkEntryTool
