@@ -25,10 +25,6 @@ We are refactoring the application to move beyond simple member management into 
 
 #### **Manager Tools**
 
-* **ManagerLogView.vue (New):**  
-  * Read-only table for Admins/Managers.  
-  * Filters to isolate "Maintenance" and "Cleaning" logs from general volunteer hours.  
-  * Date range filtering.  
 * **EventCreator.vue (Update/New):**  
   * Add toggle for needsVolunteers.  
   * Build UI to define **Recurring Patterns** (Days of Week \+ Roles) or **One-Off Shifts**.

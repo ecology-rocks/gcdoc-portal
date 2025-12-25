@@ -1,516 +1,279 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
-import { collection, addDoc, query, where, getDocs, doc, deleteDoc, updateDoc, arrayUnion, setDoc } from "firebase/firestore"
+import { ref, watch, computed } from 'vue'
+import { collection, query, where, getDocs, deleteDoc, doc, getDoc, updateDoc, addDoc } from "firebase/firestore"
 import { db, auth } from '../firebase'
-import { calculateRewards } from '../utils'
+
+import NotificationToast from './popups/NotificationToast.vue'
+import ConfirmModal from './popups/ConfirmModal.vue'
 
 const props = defineProps({
   user: { type: Object, required: true },
-  currentUserRole: String
+  currentUserRole: { type: String, default: 'member' }
 })
+
+const emit = defineEmits(['stats-update', 'edit-log'])
 
 const logs = ref([])
-const date = ref('')
-const hours = ref('')
-const activity = ref('')
-const category = ref('standard') 
-const editingId = ref(null)
 const loading = ref(false)
-const sheetPreview = ref(null)
-const viewingHistory = ref(null)
-
-// --- CONFIGURATION ---
-const CATEGORIES = {
-  standard: { label: 'Standard Volunteer', multiplier: 1, isMaintenance: false },
-  trial:    { label: 'Trial Set Up / Tear Down', multiplier: 2, isMaintenance: false },
-  maint:    { label: 'General Maintenance', multiplier: 2, isMaintenance: true },
-  cleaning: { label: 'Cleaning', multiplier: 2, isMaintenance: true }
-}
+const showSheetModal = ref(false)
+const activeSheetUrl = ref('')
+const loadingSheet = ref(false)
+const toast = ref({ visible: false, message: '', type: 'success' })
+const confirmState = ref({ isOpen: false, title: '', message: '', resolve: null })
 
 // --- HELPERS ---
-const toInputDate = (str) => {
-  if (!str) return ''
+const targetUserId = computed(() => props.user.id || props.user.uid || null)
+const isLegacyMember = computed(() => props.user.type === 'legacy')
+
+const showToast = (msg, type = 'success') => {
+  toast.value = { visible: true, message: msg, type }
+}
+
+const openConfirmModal = (title, message) => {
+  return new Promise((resolve) => {
+    confirmState.value = { isOpen: true, title, message, resolve }
+  })
+}
+
+const handleConfirm = () => {
+  if (confirmState.value.resolve) confirmState.value.resolve(true)
+  confirmState.value.isOpen = false
+}
+
+const handleCancel = () => {
+  if (confirmState.value.resolve) confirmState.value.resolve(false)
+  confirmState.value.isOpen = false
+}
+
+const getFiscalYear = (dateObj) => {
+  if (!dateObj || isNaN(dateObj.getTime())) return 0
+  const month = dateObj.getMonth()
+  const year = dateObj.getFullYear()
+  return month >= 9 ? year + 1 : year
+}
+
+const canManageLog = (log) => {
+  const role = (props.currentUserRole || '').toLowerCase()
+  if (['admin', 'manager'].includes(role)) return true
+  if (auth.currentUser && auth.currentUser.uid === log.memberId) return true
+  return false
+}
+
+const parseLogDate = (val) => {
+  if (!val) return new Date(0)
+  if (val && typeof val.toDate === 'function') return val.toDate()
+  const str = String(val).trim()
+  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(str)) return new Date(`${str}T12:00:00`) 
   if (str.includes('/')) {
-    const [m, d, y] = str.split('/')
-    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
+    const parts = str.split('/')
+    if (parts.length === 3) {
+      if (parts[0].length === 4) return new Date(`${parts[0]}-${parts[1].padStart(2,'0')}-${parts[2].padStart(2,'0')}T12:00:00`)
+      return new Date(`${parts[2]}-${parts[0].padStart(2,'0')}-${parts[1].padStart(2,'0')}T12:00:00`)
+    }
   }
-  return str
+  const d = new Date(str)
+  return isNaN(d.getTime()) ? new Date(0) : d
 }
 
-const toDisplayDate = (str) => {
-  if (!str) return ''
-  if (str.includes('-')) {
-    const [y, m, d] = str.split('-')
-    return `${m}/${d}/${y}`
-  }
-  return str
+const formatDateStandard = (val) => {
+  const d = parseLogDate(val)
+  if (isNaN(d.getTime()) || d.getTime() === 0 || d.getFullYear() === 1970) return val 
+  return d.toISOString().slice(0, 10)
 }
 
-// --- COMPUTED PREVIEW ---
-const calculatedCredit = computed(() => {
-  const h = parseFloat(hours.value) || 0
-  const rule = CATEGORIES[category.value]
-  return h * rule.multiplier
-})
-
-const isBlueRibbon = computed(() => CATEGORIES[category.value].isMaintenance)
-const isStaff = computed(() => props.currentUserRole === 'admin' || props.currentUserRole === 'manager')
-
-// --- DB REFS ---
-const getCollectionRef = () => {
-  if (props.user.type === 'legacy') {
-    return collection(db, "legacy_members", props.user.realId, "legacyLogs")
-  } else {
-    return collection(db, "logs")
-  }
-}
-
-const getDocRef = (logId) => {
-  if (props.user.type === 'legacy') {
-    return doc(db, "legacy_members", props.user.realId, "legacyLogs", logId)
-  } else {
-    return doc(db, "logs", logId)
-  }
-}
-
-// --- ACTIONS ---
+// --- FETCH ---
 const fetchLogs = async () => {
-  if (!props.user) return
+  if (!targetUserId.value) return
   loading.value = true
   logs.value = []
+  
+  const currentFY = getFiscalYear(new Date())
+  let fyRegularHours = 0
+  let fyBlueRibbonHours = 0
 
   try {
-    let data = []
-    if (props.user.type === 'legacy') {
-      const snap = await getDocs(getCollectionRef())
-      data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+    let snap
+    // EXPLICIT CHECK: Are we in Legacy Mode?
+    const legacyMode = isLegacyMember.value
+
+    if (legacyMode) {
+      snap = await getDocs(collection(db, "legacy_members", targetUserId.value, "legacyLogs"))
     } else {
-      const q = query(collection(db, "logs"), where("memberId", "==", props.user.uid))
-      const snap = await getDocs(q)
-      data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      const q = query(collection(db, "logs"), where("memberId", "==", targetUserId.value))
+      snap = await getDocs(q)
     }
     
-    data.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
-    logs.value = data
+    const rawLogs = snap.docs.map(d => {
+      const data = d.data()
+      const logDate = parseLogDate(data.date)
+      const logFY = getFiscalYear(logDate)
+      const hours = parseFloat(data.hours || 0)
+      
+      const isBlueRibbon = data.isMaintenance === true || ['Maintenance', 'Cleaning'].includes(data.type)
+      const countsForCurrentFY = (logFY === currentFY) || (logFY === currentFY - 1 && data.applyToNextYear === true)
+
+      if (data.status === 'approved' && countsForCurrentFY) {
+        isBlueRibbon ? (fyBlueRibbonHours += hours) : (fyRegularHours += hours)
+      }
+
+      return { 
+        id: d.id, 
+        ...data,
+        sheetId: data.sourceSheetId || data.sheetId || null,
+        isBlueRibbon,
+        parsedDate: logDate,
+        // CRITICAL: Tag the log so the Edit Form knows where it lives
+        isLegacy: legacyMode 
+      }
+    })
+
+    logs.value = rawLogs.sort((a, b) => b.parsedDate.getTime() - a.parsedDate.getTime())
+
+    const regularVouchers = fyRegularHours >= 50 ? Math.floor(fyRegularHours / 25) : 0
+    const blueRibbonVouchers = Math.floor(fyBlueRibbonHours / 8)
+
+    emit('stats-update', {
+      year: currentFY,
+      regularHours: fyRegularHours,
+      regularVouchers,
+      blueRibbonHours: fyBlueRibbonHours,
+      blueRibbonVouchers
+    })
+
   } catch (err) {
-    console.error("Error fetching logs:", err)
+    console.error(err)
+    showToast("Error loading logs", "error")
   }
   loading.value = false
 }
 
-watch(() => props.user, fetchLogs, { immediate: true })
-
-const handleViewSheet = async (sheetId) => {
+// --- ACTIONS ---
+const archiveAndDeleteLog = async (log) => {
+  if (!await openConfirmModal("Delete Entry?", "Cannot be undone.")) return
   try {
-    // Search by the custom 'sheetId' field
-    const q = query(collection(db, "volunteer_sheets"), where("sheetId", "==", sheetId))
-    const snap = await getDocs(q)
-    if (!snap.empty) {
-      sheetPreview.value = snap.docs[0].data()
+    const by = auth.currentUser ? auth.currentUser.email : 'Unknown'
+    await addDoc(collection(db, "archived_logs"), { ...log, originalId: log.id, archivedAt: new Date(), archivedBy: by })
+
+    if (log.isLegacy || isLegacyMember.value) {
+       await deleteDoc(doc(db, "legacy_members", targetUserId.value, "legacyLogs", log.id))
     } else {
-      alert(`Sheet with ID "${sheetId}" not found in database.`)
+       await deleteDoc(doc(db, "logs", log.id))
     }
-  } catch (err) {
-    alert("Error fetching sheet: " + err.message)
-  }
+    showToast("Deleted.", "success")
+    fetchLogs() 
+  } catch (err) { showToast(err.message, "error") }
 }
 
-// --- NEW: LINK LOG TO SHEET ---
-const handleLinkSheet = async (log) => {
-  const input = prompt("Enter the Sheet ID to link this log to (e.g., #8949):")
-  if (!input) return
-
-  try {
-    await updateDoc(getDocRef(log.id), { sourceSheetId: input.trim() })
-    // Update local state
-    const target = logs.value.find(l => l.id === log.id)
-    if (target) target.sourceSheetId = input.trim()
-  } catch (err) {
-    alert("Error linking: " + err.message)
-  }
-}
-
-const toggleRollover = async (log) => {
-  try {
-    const newVal = !log.applyToNextYear
-    await updateDoc(getDocRef(log.id), { applyToNextYear: newVal })
-    const idx = logs.value.findIndex(l => l.id === log.id)
-    if (idx !== -1) logs.value[idx].applyToNextYear = newVal
-  } catch (err) {
-    alert("Error: " + err.message)
-  }
-}
-
-const handleSubmit = async () => {
-  if (!date.value || !hours.value || !activity.value) return
+const rolloverLog = async (log) => {
+  const currentFY = getFiscalYear(parseLogDate(log.date))
+  const targetFY = currentFY + 1
   
-  const finalHours = calculatedCredit.value
-  const maintenanceFlag = isBlueRibbon.value
-  
-  const autoApprove = isStaff.value
-  const newStatus = autoApprove ? 'approved' : 'pending'
-
-  // Daily Limit Check
-  const existingLogsForDate = logs.value.filter(l => 
-    (l.date === date.value || toInputDate(l.date) === date.value) && l.id !== editingId.value
-  )
-  const dailySum = existingLogsForDate.reduce((sum, l) => sum + (parseFloat(l.hours) || 0), 0)
-  const newDailyTotal = dailySum + finalHours
-
-  if (newDailyTotal > 8) {
-    const confirm = window.confirm(
-      `Total CREDIT for ${date.value} will be ${newDailyTotal} hours.\nThis exceeds the 8-hour daily standard. Is this correct?`
-    )
-    if (!confirm) return
-  }
-
-  try {
-    if (editingId.value) {
-       // --- EDIT ---
-       const logRef = getDocRef(editingId.value)
-       const originalLog = logs.value.find(l => l.id === editingId.value)
-       
-       const historyEntry = {
-          changedAt: new Date().toISOString(),
-          changedBy: auth.currentUser.email,
-          action: "edited",
-          oldData: {
-             date: originalLog.date,
-             hours: originalLog.hours,
-             activity: originalLog.activity,
-             status: originalLog.status,
-             isMaintenance: originalLog.isMaintenance || false
-          }
-       }
-
-       await updateDoc(logRef, {
-         date: date.value, 
-         hours: finalHours,
-         activity: activity.value,
-         isMaintenance: maintenanceFlag, 
-         status: newStatus, 
-         history: arrayUnion(historyEntry)
-       })
-       editingId.value = null
-    } else {
-       // --- CREATE ---
-       const newLog = {
-         date: date.value,
-         hours: finalHours,
-         activity: activity.value,
-         isMaintenance: maintenanceFlag,
-         status: newStatus,
-         submittedAt: new Date(),
-         applyToNextYear: false,
-         history: [{
-           changedAt: new Date().toISOString(),
-           changedBy: auth.currentUser.email,
-           action: "created"
-         }]
-       }
-       
-       if (props.user.type !== 'legacy') {
-         newLog.memberId = props.user.uid
-       }
-
-       await addDoc(getCollectionRef(), newLog)
-    }
-    
-    date.value = ''
-    hours.value = ''
-    activity.value = ''
-    category.value = 'standard'
-    
-    if (!autoApprove) alert("Hours submitted for approval.")
-    fetchLogs()
-  } catch (err) {
-    console.error("Error saving log:", err)
-    alert("Failed to save log")
-  }
-}
-
-const handleEdit = (log) => {
-  date.value = toInputDate(log.date)
-  hours.value = log.hours 
-  activity.value = log.activity
-  
-  if (log.isMaintenance) {
-    category.value = 'maint' 
+  // Select Ref based on log tag OR user state
+  let docRef
+  if (log.isLegacy || isLegacyMember.value) {
+    docRef = doc(db, "legacy_members", targetUserId.value, "legacyLogs", log.id)
   } else {
-    category.value = 'standard'
+    docRef = doc(db, "logs", log.id)
   }
   
-  editingId.value = log.id
-}
+  if (log.applyToNextYear) {
+    if (!await openConfirmModal("Remove Rollover?", "Remove from next year?")) return
+    try {
+      await updateDoc(docRef, { applyToNextYear: false })
+      showToast("Rollover removed.", "success")
+      fetchLogs()
+    } catch(err) { showToast(err.message, "error") }
+    return
+  }
 
-const handleDelete = async (log) => {
-  if(!window.confirm("Are you sure you want to delete this entry?")) return
-
+  if (!await openConfirmModal("Apply Rollover?", `Apply to FY ${targetFY}?`)) return
   try {
-    await setDoc(doc(db, "archived_logs", log.id), {
-      ...log,
-      deletedAt: new Date(),
-      deletedBy: auth.currentUser.email,
-      originalCollection: props.user.type === 'legacy' ? 'legacyLogs' : 'logs'
-    })
-    await deleteDoc(getDocRef(log.id))
+    await updateDoc(docRef, { applyToNextYear: true })
+    showToast(`Applied to FY ${targetFY}!`, "success")
     fetchLogs()
-  } catch (err) {
-    console.error(err)
-    alert("Error deleting: " + err.message)
-  }
+  } catch (err) { showToast(err.message, "error") }
 }
 
-const cancelEdit = () => {
-  editingId.value = null
-  date.value = ''
-  hours.value = ''
-  activity.value = ''
-  category.value = 'standard'
+const viewSheet = async (sheetId) => {
+  if (!sheetId) return
+  loadingSheet.value = true
+  activeSheetUrl.value = ''
+  showSheetModal.value = true
+  try {
+    const docSnap = await getDoc(doc(db, "volunteer_sheets", sheetId))
+    if (docSnap.exists()) activeSheetUrl.value = docSnap.data().imageUrl
+    else { showToast("Sheet not found.", "error"); showSheetModal.value = false }
+  } catch (err) { showToast("Error loading sheet.", "error"); showSheetModal.value = false }
+  loadingSheet.value = false
 }
 
-// --- STATS ---
-const stats = computed(() => calculateRewards(logs.value, props.user.membershipType))
-
-const maintenanceStats = computed(() => {
-  const maintHours = logs.value
-    .filter(l => l.isMaintenance)
-    .reduce((sum, l) => sum + (parseFloat(l.hours) || 0), 0)
-  
-  return {
-    hours: maintHours,
-    ribbons: Math.floor(maintHours / 8)
-  }
-})
+watch(targetUserId, fetchLogs, { immediate: true })
+defineExpose({ fetchLogs })
 </script>
 
 <template>
-  <div class="mt-8">
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-      <div class="bg-indigo-600 text-white p-4 rounded shadow">
-        <h4 class="text-indigo-200 text-xs font-bold uppercase">{{ stats.year }} Fiscal Hours</h4>
-        <p class="text-3xl font-bold">{{ stats.totalHours }}</p>
-        <p class="text-xs opacity-75 mt-1">(Oct 1 - Sep 30)</p>
-      </div>
-      <div class="bg-white p-4 rounded shadow border-l-4 border-green-500">
-        <h4 class="text-gray-500 text-xs font-bold uppercase">Standard Vouchers</h4>
-        <p class="text-3xl font-bold text-gray-800">{{ stats.vouchers }}</p>
-      </div>
-      <div class="bg-green-50 p-4 rounded shadow border-l-4 border-green-700">
-        <h4 class="text-green-800 text-xs font-bold uppercase">Blue Ribbons 🏆</h4>
-        <p class="text-3xl font-bold text-green-900">{{ maintenanceStats.ribbons }}</p>
-        <p class="text-xs text-green-700 mt-1">{{ maintenanceStats.hours }} Maint. Hours</p>
-      </div>
-      <div class="bg-white p-4 rounded shadow border-l-4 border-blue-500">
-        <h4 class="text-gray-500 text-xs font-bold uppercase">Membership Status</h4>
-        <p class="text-xl font-bold text-gray-800 mt-1">{{ stats.membershipStatus }}</p>
-      </div>
+  <div class="bg-white rounded shadow border border-gray-200 overflow-hidden relative">
+    <NotificationToast v-if="toast.visible" :message="toast.message" :type="toast.type" @close="toast.visible = false" />
+    <ConfirmModal :isOpen="confirmState.isOpen" :title="confirmState.title" :message="confirmState.message" @confirm="handleConfirm" @cancel="handleCancel" />
+
+    <div class="bg-gray-50 p-4 border-b flex justify-between items-center">
+      <h3 class="font-bold text-gray-700">📜 Work History</h3>
+      <button @click="fetchLogs" class="text-xs text-blue-600 hover:underline">Refresh</button>
     </div>
 
-    <h3 class="text-xl font-bold mb-4 text-gray-800">
-       {{ editingId ? "Edit Entry" : "Log New Hours" }}
-    </h3>
-    
-    <form @submit.prevent="handleSubmit" class="p-4 rounded mb-6 grid grid-cols-1 md:grid-cols-4 gap-4 items-start" :class="editingId ? 'bg-yellow-50 border border-yellow-400' : 'bg-gray-100'">
-      
-      <div>
-        <label class="block text-xs font-bold text-gray-600 mb-1">Date</label>
-        <input type="date" v-model="date" class="w-full p-2 border rounded" required />
-      </div>
+    <div v-if="loading" class="p-8 text-center text-gray-400">Loading history...</div>
+    <div v-else-if="logs.length === 0" class="p-8 text-center text-gray-500 italic">No hours logged yet.</div>
 
-      <div class="md:col-span-2">
-        <label class="block text-xs font-bold text-gray-600 mb-1">Activity Description</label>
-        <input type="text" v-model="activity" class="w-full p-2 border rounded" placeholder="e.g. Cleaned mats, Set up rings" required />
-        
-        <label class="block text-xs font-bold text-gray-600 mt-3 mb-1">Credit Category</label>
-        <select v-model="category" class="w-full p-2 border rounded bg-white">
-          <option value="standard">Standard Volunteer (1x Credit)</option>
-          <option value="trial">Trial Set Up / Tear Down (2x Credit)</option>
-          <option value="maint">General Maintenance (2x + Blue Ribbon)</option>
-          <option value="cleaning">Cleaning (2x + Blue Ribbon)</option>
-        </select>
-      </div>
-
-      <div>
-        <label class="block text-xs font-bold text-gray-600 mb-1">Actual Clock Hours</label>
-        <div class="flex flex-col gap-2">
-          <input 
-            type="number" 
-            step="0.25" 
-            v-model="hours" 
-            class="w-full p-2 border rounded" 
-            placeholder="Time worked"
-            required 
-          />
-          
-          <div v-if="hours" class="text-xs bg-white border px-2 py-1 rounded shadow-sm">
-             <span class="block text-gray-500">Credited: <strong class="text-black text-sm">{{ calculatedCredit }} hrs</strong></span>
-             <span v-if="CATEGORIES[category].multiplier > 1" class="text-purple-600 font-bold block">
-               (Doubled)
-             </span>
-             <span v-if="isBlueRibbon" class="text-green-600 font-bold block">
-               + Blue Ribbon
-             </span>
-          </div>
-
-          <button type="submit" class="text-white px-4 py-2 rounded hover:opacity-90 transition-colors shadow mt-1" :class="editingId ? 'bg-yellow-600' : 'bg-green-600'">
-            {{ editingId ? "Update" : "Submit" }}
-          </button>
-        </div>
-      </div>
-
-      <div v-if="editingId" class="col-span-4 text-right">
-        <button type="button" @click="cancelEdit" class="text-sm text-gray-500 underline">Cancel Edit</button>
-      </div>
-    </form>
-
-    <div class="bg-white rounded shadow overflow-x-auto">
-      <table class="w-full text-left min-w-[600px]">
-        <thead class="bg-gray-200">
+    <div v-else class="max-h-96 overflow-y-auto">
+      <table class="w-full text-sm text-left">
+        <thead class="bg-gray-100 text-gray-500 uppercase text-xs sticky top-0 z-10">
           <tr>
-            <th class="p-3 text-sm font-semibold text-gray-700">Date</th>
-            <th class="p-3 text-sm font-semibold text-gray-700">Activity</th>
-            <th class="p-3 text-sm font-semibold text-gray-700 text-right">Credited</th>
-            <th class="p-3 text-sm font-semibold text-gray-700">Status</th>
-            <th v-if="isStaff" class="p-3 text-sm font-semibold text-gray-700 text-center">Rollover</th>
-            <th class="p-3 text-sm font-semibold text-gray-700">Actions</th>
+            <th class="p-3">Date</th>
+            <th class="p-3">Activity</th>
+            <th class="p-3 text-right">Hours</th>
+            <th class="p-3 text-center">Actions</th>
           </tr>
         </thead>
-        <tbody>
-          <tr v-if="loading"><td colspan="6" class="p-4 text-center text-gray-500">Loading...</td></tr>
-          <tr v-else-if="logs.length === 0"><td colspan="6" class="p-4 text-center text-gray-500">No hours logged yet.</td></tr>
-          
-          <tr 
-            v-else 
-            v-for="log in logs" 
-            :key="log.id" 
-            class="border-t hover:opacity-100 transition-colors"
-            :class="{ 
-              'bg-green-50 hover:bg-green-100': log.isMaintenance,
-              'bg-purple-50 hover:bg-purple-100': log.applyToNextYear && !log.isMaintenance,
-              'hover:bg-gray-50': !log.isMaintenance && !log.applyToNextYear
-            }"
-          >
-             <td class="p-3">{{ toDisplayDate(log.date) }}</td>
-             <td class="p-3">
-               {{ log.activity }}
-               <span v-if="log.isMaintenance" class="ml-2 text-[10px] uppercase font-bold text-green-700 border border-green-300 px-1 rounded bg-white">
-                 Maintenance
-               </span>
-             </td>
-             <td class="p-3 text-right font-mono font-bold">{{ log.hours }}</td>
-             <td class="p-3">
-              <span class="text-xs px-2 py-1 rounded-full capitalize" 
-                :class="{
-                  'bg-orange-100 text-orange-800': log.status === 'pending',
-                  'bg-white border border-gray-300 text-gray-600': log.status !== 'pending'
-                }">
-                {{ log.status || 'approved' }}
-              </span>
-             </td>
-             
-             <td v-if="isStaff" class="p-3 text-center">
-               <input 
-                 type="checkbox" 
-                 :checked="log.applyToNextYear || false" 
-                 @change="toggleRollover(log)"
-                 class="cursor-pointer w-4 h-4"
-               />
-             </td>
-
-             <td class="p-3 text-sm whitespace-nowrap flex items-center">
-              <button @click="handleEdit(log)" class="text-blue-600 hover:underline mr-3 font-bold">Edit</button>
-              <button @click="handleDelete(log)" class="text-red-600 hover:underline mr-3">Delete</button>
-              
-              <button 
-                v-if="isStaff && log.sourceSheetId"
-                @click="handleViewSheet(log.sourceSheetId)"
-                class="text-purple-600 hover:text-purple-800 text-xs border border-purple-200 px-2 py-1 rounded bg-purple-50 mr-2"
-                :title="'View Source Sheet ' + log.sourceSheetId"
-              >
-                📄 {{ log.sourceSheetId }}
-              </button>
-
-              <button 
-                v-if="isStaff && !log.sourceSheetId"
-                @click="handleLinkSheet(log)"
-                class="text-gray-400 hover:text-purple-600 text-xs border border-dashed border-gray-300 px-2 py-1 rounded hover:bg-purple-50 mr-2"
-                title="Manually Link to Sheet"
-              >
-                🔗 Link
-              </button>
-              
-              <button 
-                v-if="log.history && log.history.length > 0"
-                @click="viewingHistory = log" 
-                class="text-gray-500 hover:text-gray-700 text-xs border border-gray-300 px-2 py-1 rounded bg-white"
-                title="View Edit History"
-              >
-                🕒
-              </button>
-             </td>
+        <tbody class="divide-y">
+          <tr v-for="log in logs" :key="log.id" class="hover:bg-gray-50 group">
+            <td class="p-3 whitespace-nowrap text-gray-600 align-top font-mono text-xs">{{ formatDateStandard(log.date) }}</td>
+            <td class="p-3 text-gray-800 align-top">
+              <div class="flex flex-wrap items-center gap-2 mb-1">
+                <span class="font-bold text-xs uppercase text-gray-500">{{ log.type }}</span>
+                <span v-if="log.sheetId" @click="viewSheet(log.sheetId)" class="text-[10px] uppercase font-bold bg-gray-100 hover:bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded border border-gray-300 cursor-pointer flex items-center gap-1 transition-colors select-none" title="Click to View Original Sheet">📄 Sheet #{{ log.sheetId.slice(-4) }}</span>
+                <span v-if="log.isBlueRibbon" class="text-[10px] uppercase font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded border border-blue-200">🏆 Blue Ribbon</span>
+                <span v-if="log.applyToNextYear" class="text-[10px] uppercase font-bold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded border border-purple-200">↪️ Rolled Over</span>
+                <span v-if="log.status === 'pending'" class="text-[10px] uppercase font-bold bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded border border-yellow-200">⏳ Pending</span>
+              </div>
+              <div class="text-sm text-gray-700 leading-snug">
+                {{ log.activity || log.description || '(No details)' }}
+                <span class="text-[10px] text-gray-400 font-mono ml-2 select-all">(ID: {{ log.id }})</span>
+              </div>
+            </td>
+            <td class="p-3 text-right font-mono font-bold align-top" :class="log.isBlueRibbon ? 'text-blue-600' : 'text-gray-700'">{{ log.hours }}</td>
+            <td class="p-3 text-center align-top min-w-[120px]">
+              <div v-if="canManageLog(log)" class="flex flex-wrap justify-center gap-2">
+                <button v-if="['admin', 'manager'].includes(currentUserRole.toLowerCase())" @click="rolloverLog(log)" class="text-purple-600 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 px-2 py-1 rounded text-xs font-bold border border-purple-200">↪️</button>
+                <button @click="$emit('edit-log', log)" class="text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded text-xs font-bold border border-blue-200">Edit</button>
+                <button @click="archiveAndDeleteLog(log)" class="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-2 py-1 rounded text-xs font-bold border border-red-200">×</button>
+              </div>
+            </td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <div v-if="viewingHistory" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div class="bg-white p-6 rounded shadow-lg w-full max-w-md">
-        <div class="flex justify-between items-center mb-4 border-b pb-2">
-          <h3 class="font-bold text-lg">Edit History</h3>
-          <button @click="viewingHistory = null" class="text-gray-500 hover:text-gray-800">✕</button>
-        </div>
-        
-        <div class="max-h-[300px] overflow-y-auto space-y-4">
-          <div v-for="(entry, i) in viewingHistory.history.slice().reverse()" :key="i" class="text-sm border-l-2 border-gray-300 pl-3">
-            <p class="text-gray-500 text-xs">
-              {{ new Date(entry.changedAt).toLocaleString() }} 
-              by <span class="font-semibold">{{ entry.changedBy }}</span>
-            </p>
-            <p class="font-bold text-xs uppercase text-blue-600 mb-1">{{ entry.action || 'changed' }}</p>
-            
-            <div v-if="entry.oldData" class="mt-1 text-gray-700 bg-gray-50 p-2 rounded">
-              <p class="font-bold text-xs uppercase text-gray-400 mb-1">Previous Version:</p>
-              <p>Date: {{ entry.oldData.date }}</p>
-              <p>Activity: {{ entry.oldData.activity }}</p>
-              <p>Hours: {{ entry.oldData.hours }}</p>
-              <p v-if="entry.oldData.isMaintenance">Type: Maintenance</p>
-            </div>
+    <div v-if="showSheetModal" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
+       <div class="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+          <div class="bg-gray-800 p-3 flex justify-between items-center text-white shrink-0">
+             <h3 class="font-bold text-sm">Original Sign-In Sheet</h3>
+             <button @click="showSheetModal = false" class="hover:text-gray-300 font-bold px-2">Close</button>
           </div>
-        </div>
-        <div class="mt-4 text-right">
-          <button @click="viewingHistory = null" class="bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300">Close</button>
-        </div>
-      </div>
+          <div class="p-0 flex-grow overflow-auto bg-gray-100 flex items-center justify-center relative">
+             <div v-if="loadingSheet" class="text-gray-500 animate-pulse font-bold">Loading Image...</div>
+             <img v-else-if="activeSheetUrl" :src="activeSheetUrl" class="max-w-full h-auto object-contain shadow-lg" />
+          </div>
+       </div>
     </div>
-
-    <div v-if="sheetPreview" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-      <div class="bg-white rounded shadow-lg max-w-4xl w-full max-h-[90vh] flex flex-col">
-        <div class="flex justify-between items-center p-4 border-b">
-          <h3 class="font-bold text-lg">Source Sheet: <span class="font-mono text-purple-700">{{ sheetPreview.sheetId }}</span></h3>
-          <button @click="sheetPreview = null" class="text-gray-500 hover:text-red-600 text-2xl font-bold">×</button>
-        </div>
-        
-        <div class="flex-1 bg-gray-100 overflow-auto p-4 flex justify-center">
-           <img 
-             :src="sheetPreview.imageUrl" 
-             alt="Original Sheet" 
-             class="max-w-full object-contain shadow border" 
-           />
-        </div>
-        
-        <div class="p-4 border-t text-right bg-gray-50">
-           <a 
-             :href="sheetPreview.imageUrl" 
-             target="_blank" 
-             rel="noreferrer"
-             class="text-blue-600 hover:underline text-sm font-bold"
-           >
-             Open Full Size in New Tab
-           </a>
-        </div>
-      </div>
-    </div>
-
   </div>
 </template>
