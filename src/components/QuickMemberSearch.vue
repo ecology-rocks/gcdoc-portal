@@ -24,6 +24,7 @@ onMounted(async () => {
 
       combined.push({
         id: doc.id,
+        uid: doc.id,
         firstName: d.firstName,
         lastName: d.lastName,
         email: d.email,
@@ -41,6 +42,7 @@ onMounted(async () => {
 
       combined.push({
         id: doc.id,
+        uid: doc.id,
         firstName: d.firstName,
         lastName: d.lastName,
         email: d.email,
