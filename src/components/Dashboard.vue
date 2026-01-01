@@ -8,7 +8,6 @@ import { db, auth } from '../firebase'
 import ProfileEditor from './ProfileEditor.vue'
 import NewMemberForm from './NewMemberForm.vue'
 import QuickMemberSearch from './QuickMemberSearch.vue'
-import ConsolidateTool from './ConsolidateTool.vue' 
 
 // Dashboard Views
 import MemberView from './dashboard/MemberView.vue'

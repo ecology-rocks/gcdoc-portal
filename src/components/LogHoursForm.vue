@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { collection, addDoc, doc, updateDoc, arrayUnion } from "firebase/firestore"
 import { db, auth } from '../firebase'
+import { formatDateStandard } from '../utils'
 
 const props = defineProps({
   user: { type: Object, required: true },
@@ -26,45 +27,6 @@ const form = ref({
   category: 'regular'
 })
 
-// --- DATE HELPER (Fixes Blank Date Issue) ---
-const formatDateStandard = (val) => {
-  if (!val) return new Date().toISOString().slice(0, 10)
-  
-  // 1. Handle Firestore Timestamp
-  if (val.toDate && typeof val.toDate === 'function') {
-    return val.toDate().toISOString().slice(0, 10)
-  }
-
-  const str = String(val).trim()
-
-  // 2. Handle ISO "YYYY-MM-DD"
-  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(str)) {
-    // Re-format to ensure leading zeros (e.g. 2024-1-1 -> 2024-01-01)
-    const d = new Date(`${str}T12:00:00`)
-    return d.toISOString().slice(0, 10)
-  }
-
-  // 3. Handle Legacy "M/D/YYYY" or "MM/DD/YYYY"
-  if (str.includes('/')) {
-    const parts = str.split('/')
-    if (parts.length === 3) {
-      // US Format: MM/DD/YYYY
-      const m = parts[0].padStart(2, '0')
-      const d = parts[1].padStart(2, '0')
-      const y = parts[2]
-      
-      // Legacy Edge Case: YYYY/MM/DD
-      if (parts[0].length === 4) {
-         return `${parts[0]}-${parts[1].padStart(2,'0')}-${parts[2].padStart(2,'0')}`
-      }
-      return `${y}-${m}-${d}`
-    }
-  }
-
-  // 4. Fallback
-  const d = new Date(str)
-  return isNaN(d.getTime()) ? new Date().toISOString().slice(0, 10) : d.toISOString().slice(0, 10)
-}
 
 const populateForm = () => {
   if (props.initialData) {

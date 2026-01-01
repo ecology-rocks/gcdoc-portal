@@ -2,7 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { collection, query, where, getDocs, deleteDoc, doc, getDoc, updateDoc, addDoc } from "firebase/firestore"
 import { db, auth } from '../firebase'
-
+import { getFiscalYear, formatDateStandard, parseDateSafe } from '../utils'
 import NotificationToast from './popups/NotificationToast.vue'
 import ConfirmModal from './popups/ConfirmModal.vue'
 
@@ -45,12 +45,6 @@ const handleCancel = () => {
   confirmState.value.isOpen = false
 }
 
-const getFiscalYear = (dateObj) => {
-  if (!dateObj || isNaN(dateObj.getTime())) return 0
-  const month = dateObj.getMonth()
-  const year = dateObj.getFullYear()
-  return month >= 9 ? year + 1 : year
-}
 
 const canManageLog = (log) => {
   const role = (props.currentUserRole || '').toLowerCase()
@@ -59,27 +53,6 @@ const canManageLog = (log) => {
   return false
 }
 
-const parseLogDate = (val) => {
-  if (!val) return new Date(0)
-  if (val && typeof val.toDate === 'function') return val.toDate()
-  const str = String(val).trim()
-  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(str)) return new Date(`${str}T12:00:00`) 
-  if (str.includes('/')) {
-    const parts = str.split('/')
-    if (parts.length === 3) {
-      if (parts[0].length === 4) return new Date(`${parts[0]}-${parts[1].padStart(2,'0')}-${parts[2].padStart(2,'0')}T12:00:00`)
-      return new Date(`${parts[2]}-${parts[0].padStart(2,'0')}-${parts[1].padStart(2,'0')}T12:00:00`)
-    }
-  }
-  const d = new Date(str)
-  return isNaN(d.getTime()) ? new Date(0) : d
-}
-
-const formatDateStandard = (val) => {
-  const d = parseLogDate(val)
-  if (isNaN(d.getTime()) || d.getTime() === 0 || d.getFullYear() === 1970) return val 
-  return d.toISOString().slice(0, 10)
-}
 
 // --- FETCH ---
 const fetchLogs = async () => {
@@ -105,7 +78,7 @@ const fetchLogs = async () => {
     
     const rawLogs = snap.docs.map(d => {
       const data = d.data()
-      const logDate = parseLogDate(data.date)
+      const logDate = parseDateSafe(data.date)
       const logFY = getFiscalYear(logDate)
       const hours = parseFloat(data.hours || 0)
       

@@ -89,3 +89,34 @@ export function calculateRewards(logs, membershipType = "Regular") {
 
   return { totalHours, vouchers, membershipStatus, year: currentFiscalYear };
 }
+
+export function parseDateSafe(val) {
+  if (!val) return new Date(0);
+  if (val.toDate && typeof val.toDate === 'function') return val.toDate(); // Firestore
+  
+  const str = String(val).trim();
+  // Handle ISO YYYY-MM-DD
+  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(str)) return new Date(`${str}T12:00:00`);
+  
+  // Handle US format M/D/YYYY or MM/DD/YYYY
+  if (str.includes('/')) {
+    const parts = str.split('/');
+    if (parts.length === 3) {
+      const m = parts[0].padStart(2, '0');
+      const d = parts[1].padStart(2, '0');
+      const y = parts[2];
+      // Handle legacy YYYY/MM/DD if necessary
+      if (parts[0].length === 4) return new Date(`${parts[0]}-${parts[1]}-${parts[2]}T12:00:00`);
+      return new Date(`${y}-${m}-${d}T12:00:00`);
+    }
+  }
+  
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? new Date(0) : d;
+}
+
+export function formatDateStandard(val) {
+  const d = parseDateSafe(val);
+  if (isNaN(d.getTime()) || d.getFullYear() === 1970) return new Date().toISOString().slice(0, 10);
+  return d.toISOString().slice(0, 10);
+}
