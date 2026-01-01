@@ -2,17 +2,17 @@
 import { ref, computed, watch } from 'vue'
 import { signOut } from "firebase/auth"
 import { doc, getDoc, setDoc, query, collection, where, getDocs, writeBatch } from "firebase/firestore"
-import { db, auth } from '../firebase'
+import { db, auth } from '../../firebase'
 
 // --- COMPONENTS ---
-import ProfileEditor from './members/ProfileEditor.vue' // Updated path
-import NewMemberForm from './members/NewMemberForm.vue' // Updated path
-import QuickMemberSearch from './members/QuickMemberSearch.vue' // Updated path
+import ProfileEditor from '../members/ProfileEditor.vue' // Updated path
+import NewMemberForm from '../members/NewMemberForm.vue' // Updated path
+import QuickMemberSearch from '../members/QuickMemberSearch.vue' // Updated path
 
 // Dashboard Views
-import MemberView from './dashboard/MemberView.vue'
-import EventsView from './dashboard/EventsView.vue'
-import AdminConsole from './dashboard/AdminConsole.vue'
+import MemberView from './MemberView.vue'
+import EventsView from './EventsView.vue'
+import AdminConsole from './AdminConsole.vue'
 
 const props = defineProps({
   user: { type: Object, required: true }

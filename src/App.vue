@@ -5,8 +5,8 @@ import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore"
 import { auth, db } from './firebase'
 
 import Login from './components/auth/Login.vue' 
-import Dashboard from './components/Dashboard.vue'
-import KioskMode from './components/KioskMode.vue'
+import Dashboard from './components/dashboard/Dashboard.vue'
+import KioskMode from './components/kiosk/KioskMode.vue'
 
 const user = ref(null)
 const loading = ref(true)

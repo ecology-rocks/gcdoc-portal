@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { collection, query, getDocs, orderBy, doc, updateDoc, deleteDoc } from "firebase/firestore"
 import { db } from '../../firebase'
+import { downloadCSV } from '../../utils'
 
 const props = defineProps({
   currentUserRole: String // 'manager' or 'admin'
@@ -48,6 +49,23 @@ const fetchData = async () => {
 
 // --- ACTIONS ---
 
+const handleExport = () => {
+  // Re-map the data to a clean format for the shared tool
+  const rows = filteredLogs.value.map(log => {
+    const member = membersMap.value[log.memberId] || { name: 'Unknown', email: '' }
+    return {
+      Date: log.date,
+      Member: member.name,
+      Email: member.email,
+      Activity: log.activity,
+      Hours: log.hours,
+      Status: log.status
+    }
+  })
+  downloadCSV(rows, `manager_logs_export_${new Date().toISOString().slice(0,10)}.csv`)
+}
+
+
 const handleApprove = async (log) => {
   if (!confirm("Approve this entry?")) return // Optional safety check
 
@@ -88,33 +106,6 @@ const copyEmail = async (email) => {
   }
 }
 
-const downloadCSV = () => {
-  if (filteredLogs.value.length === 0) return alert("No logs to export.")
-
-  const headers = ["Date", "Member Name", "Email", "Activity", "Hours", "Status"]
-  const rows = filteredLogs.value.map(log => {
-    const member = membersMap.value[log.memberId] || { name: 'Unknown/Deleted', email: '' }
-    return [
-      log.date,
-      `"${member.name}"`, 
-      member.email,
-      `"${log.activity.replace(/"/g, '""')}"`,
-      log.hours,
-      log.status
-    ]
-  })
-
-  const csvContent = [headers.join(","), ...rows.map(row => row.join(","))].join("\n")
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement("a")
-  link.setAttribute("href", url)
-  link.setAttribute("download", `manager_logs_export_${new Date().toISOString().slice(0,10)}.csv`)
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-}
-
 // --- COMPUTED ---
 const filteredLogs = computed(() => {
   return logs.value.filter(log => {
@@ -147,7 +138,7 @@ onMounted(() => {
           {{ emailCopyStatus }}
         </span>
         <button 
-          @click="downloadCSV"
+          @click="handleExport"
           class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 text-sm font-bold flex items-center"
         >
           <span>⬇ Export CSV</span>

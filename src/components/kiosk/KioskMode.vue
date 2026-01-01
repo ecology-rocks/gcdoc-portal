@@ -1,12 +1,12 @@
 <script setup>
 import { ref, onMounted, defineAsyncComponent } from 'vue'
 import { collection, onSnapshot, query, orderBy, getDocs } from "firebase/firestore"
-import { db } from '../firebase'
+import { db } from '../../firebase'
 
-const KioskHome = defineAsyncComponent(() => import('./kiosk/KioskHome.vue'))
-const KioskSignIn = defineAsyncComponent(() => import('./kiosk/KioskSignIn.vue'))
-const KioskRegister = defineAsyncComponent(() => import('./kiosk/KioskRegister.vue'))
-const KioskSignOut = defineAsyncComponent(() => import('./kiosk/KioskSignOut.vue'))
+const KioskHome = defineAsyncComponent(() => import('./KioskHome.vue'))
+const KioskSignIn = defineAsyncComponent(() => import('./KioskSignIn.vue'))
+const KioskRegister = defineAsyncComponent(() => import('./KioskRegister.vue'))
+const KioskSignOut = defineAsyncComponent(() => import('./KioskSignOut.vue'))
 
 // --- STATE ---
 const mode = ref('home')
