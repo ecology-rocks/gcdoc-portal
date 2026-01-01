@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import Papa from 'papaparse'
-import { collection, writeBatch, doc, getDocs, query, collectionGroup } from "firebase/firestore"
+import { collection, writeBatch, doc, getDocs, query, where } from "firebase/firestore"
 import { db } from '../firebase'
 import { calculateRewards } from '../utils'
 
@@ -26,15 +26,12 @@ const handleMeetingReport = async () => {
   loading.value = true
   status.value = "Generating report..."
   try {
-    // 1. Fetch Members
+    // 1. Fetch All Members
     const membersMap = new Map()
-    const activeSnap = await getDocs(collection(db, "members"))
-    activeSnap.forEach(d => membersMap.set(d.id, { ...d.data(), type: 'active' }))
-    
-    const legacySnap = await getDocs(collection(db, "legacy_members"))
-    legacySnap.forEach(d => membersMap.set(d.id, { ...d.data(), type: 'legacy' }))
+    const memSnap = await getDocs(collection(db, "members"))
+    memSnap.forEach(d => membersMap.set(d.id, { ...d.data() }))
 
-    // 2. Fetch Logs & Group
+    // 2. Fetch All Logs
     const logsByMember = {} 
     const logsSnap = await getDocs(collection(db, "logs"))
     logsSnap.forEach(doc => {
@@ -43,23 +40,17 @@ const handleMeetingReport = async () => {
       logsByMember[d.memberId].push(d)
     })
 
-    const legacyPromises = legacySnap.docs.map(async (memDoc) => {
-      const subLogsSnap = await getDocs(collection(db, "legacy_members", memDoc.id, "legacyLogs"))
-      const mLogs = subLogsSnap.docs.map(l => l.data())
-      if (!logsByMember[memDoc.id]) logsByMember[memDoc.id] = []
-      logsByMember[memDoc.id].push(...mLogs)
-    })
-    await Promise.all(legacyPromises)
-
     // 3. Build & Split Data
     const regularData = []
     const applicantData = []
     const currentYear = new Date().getFullYear()
 
     membersMap.forEach((m, id) => {
+      // FILTER: Only Active members appear on the Meeting Attendance sheet
+      if (m.status == 'Inactive' ) return
+
       const memberLogs = logsByMember[id] || []
       const stats = calculateRewards(memberLogs, m.membershipType)
-      if (m.status && m.status !== 'Active') return
 
       const joinedYear = parseInt(m.joinedDate)
       // eslint-disable-next-line no-unused-vars
@@ -122,9 +113,7 @@ const handleMeetingReport = async () => {
                 <th style="width: 30px; text-align: center;" title="Lifetime Status">LT</th>
                 <th>Member Name</th>
                 <th>Type</th>
-                <th>Hours (FY)</th>
-                <th>Vouchers</th>
-                <th>Dues Status</th>
+                <th>Hours To Date (10/1 to 9/30)</th>
                 <th style="text-align: center; width: 60px;">Present</th>
               </tr>
             </thead>
@@ -135,8 +124,6 @@ const handleMeetingReport = async () => {
                   <td>${r.name}</td>
                   <td>${r.type}</td>
                   <td>${r.hours}</td>
-                  <td>${r.vouchers}</td>
-                  <td>${r.dues}</td>
                   <td class="center"><div class="box"></div></td>
                 </tr>
               `).join('')}
@@ -198,9 +185,9 @@ const handleExportMembers = async () => {
       }
     }
 
-    const formatRow = (id, d, statusText) => ({
+    const formatRow = (id, d) => ({
       SystemID: id,
-      Status: statusText,
+      Status: d.status || "Active",
       LegacyKey: d.legacyKey || "",
       FirstName: d.firstName || "",
       LastName: d.lastName || "",
@@ -224,10 +211,7 @@ const handleExportMembers = async () => {
     })
 
     const membersSnap = await getDocs(collection(db, "members"))
-    membersSnap.forEach(doc => allMembers.push(formatRow(doc.id, doc.data(), "Active")))
-
-    const legacySnap = await getDocs(collection(db, "legacy_members"))
-    legacySnap.forEach(doc => allMembers.push(formatRow(doc.id, doc.data(), "Unregistered")))
+    membersSnap.forEach(doc => allMembers.push(formatRow(doc.id, doc.data())))
 
     status.value = `Exporting ${allMembers.length} members...`
     downloadCSV(allMembers, `GCDOC_Members_Backup_${new Date().toISOString().slice(0,10)}.csv`)
@@ -247,6 +231,7 @@ const handleExportLogs = async () => {
     const memberMap = {} 
     const emailMap = {}
     
+    // Map Member Info
     const membersSnap = await getDocs(collection(db, "members"))
     membersSnap.forEach(doc => {
       const d = doc.data()
@@ -256,12 +241,15 @@ const handleExportLogs = async () => {
       emailMap[doc.id] = d.email
     })
 
+    // Fetch All Logs
     const logsSnap = await getDocs(collection(db, "logs"))
     logsSnap.forEach(doc => {
       const d = doc.data()
       exportData.push({
         LogID: doc.id,
-        Type: "Active",
+        // Since we combined tables, we can just look up the member status if we wanted to
+        // distinguish "Active" vs "Unregistered", but mostly a log is just a log now.
+        Type: "Log", 
         MemberEmail: emailMap[d.memberId] || "",
         MemberName: memberMap[d.memberId] || "Unknown",
         Date: d.date,
@@ -272,30 +260,6 @@ const handleExportLogs = async () => {
       })
     })
 
-    const legacyMembersSnap = await getDocs(collection(db, "legacy_members"))
-    const legacyPromises = legacyMembersSnap.docs.map(async (memDoc) => {
-      const m = memDoc.data()
-      let name = `${m.lastName}, ${m.firstName}`
-      if (m.firstName2) name += ` & ${m.firstName2}`
-      
-      const subLogsSnap = await getDocs(collection(db, "legacy_members", memDoc.id, "legacyLogs"))
-      subLogsSnap.forEach(logDoc => {
-        const d = logDoc.data()
-        exportData.push({
-          LogID: logDoc.id,
-          Type: "Legacy (Unregistered)",
-          MemberEmail: m.email,
-          MemberName: name,
-          Date: d.date,
-          Activity: d.activity,
-          Hours: d.hours,
-          Status: d.status || "approved",
-          FiscalYearRollover: d.applyToNextYear ? "Yes" : "No",
-        })
-      })
-    })
-
-    await Promise.all(legacyPromises)
     exportData.sort((a, b) => new Date(b.Date) - new Date(a.Date))
 
     status.value = `Exporting ${exportData.length} logs...`
@@ -324,54 +288,33 @@ const handleMemberUpload = (e) => {
       let count = 0
 
       for (const row of rows) {
+        // We write EVERYTHING to 'members' now.
+        
+        let docRef
         if (row.SystemID) {
-          const coll = row.Status === 'Active' ? "members" : "legacy_members"
-          const docRef = doc(db, coll, row.SystemID)
-          
-          batch.set(docRef, {
+          docRef = doc(db, "members", row.SystemID)
+        } else if (row['e-mail address']) {
+          // Legacy import style
+          const cleanId = row['e-mail address'].trim().toLowerCase()
+          docRef = doc(db, "members", cleanId)
+        } else {
+           // Skip if no ID
+           continue 
+        }
+
+        const cleanData = {
             firstName: row.FirstName,
             lastName: row.LastName,
-            firstName2: row.FirstName2,
-            lastName2: row.LastName2,
-            email: row.Email,
-            phone: row.Phone,
-            cellPhone: row.Cell,
-            workPhone: row.WorkPhone,
-            address: row.Address,
-            city: row.City,
-            state: row.State,
-            zip: row.Zip,
-            membershipType: row.MembershipType,
-            role: row.Role,
-            joinedDate: row.Joined,
-            breeds: row.Breeds,
-            occupation: row.Occupation,
-            interests: row.Interests,
-            activities: {
-              agility: row.Agility === "Y",
-              obedience: row.Obedience === "Y",
-              rally: row.Rally === "Y",
-              flyball: row.Flyball === "Y",
-              freestyle: row.Freestyle === "Y",
-              conformation: row.Conformation === "Y",
-              earthdog: row.Earthdog === "Y"
-            }
-          }, { merge: true })
-          count++
-        } else if (row['e-mail address']) {
-           const email = row['e-mail address']
-           const cleanId = email.trim().toLowerCase()
-           const docRef = doc(db, "legacy_members", cleanId)
-           batch.set(docRef, {
-             legacyKey: parseInt(row['Key']),
-             email: email.trim().toLowerCase(),
-             firstName: row['FirstName'],
-             lastName: row['LastName'],
-             membershipType: row['Member Type'] || 'Regular',
-             importedAt: new Date(),
-           }, { merge: true })
-           count++
+            email: row.Email || row['e-mail address'],
+            // Map legacy fields if present
+            status: row.Status || (row.Active === 'True' ? 'Active' : 'Unregistered'),
+            membershipType: row.MembershipType || row['Member Type'] || 'Regular',
+            legacyKey: row.Key ? parseInt(row.Key) : null,
+            importedAt: new Date()
         }
+        
+        batch.set(docRef, cleanData, { merge: true })
+        count++
       }
 
       await batch.commit()
@@ -395,57 +338,40 @@ const handleCreditsUpload = (e) => {
       const batch = writeBatch(db)
       let count = 0
 
-      const legacySnap = await getDocs(collection(db, "legacy_members"))
-      const keyMap = {} 
-      legacySnap.forEach(d => { if(d.data().legacyKey) keyMap[d.data().legacyKey.toString()] = d.id })
-
-      const activeSnap = await getDocs(collection(db, "members"))
-      const emailMap = {}
-      activeSnap.forEach(d => emailMap[d.data().email] = d.id)
+      // We need to look up members to link logs correctly
+      const membersSnap = await getDocs(collection(db, "members"))
+      const keyMap = {}   // Legacy Key -> DocID
+      const emailMap = {} // Email -> DocID
+      
+      membersSnap.forEach(d => {
+        const data = d.data()
+        if (data.legacyKey) keyMap[data.legacyKey.toString()] = d.id
+        if (data.email) emailMap[data.email.toLowerCase()] = d.id
+      })
 
       for (const row of rows) {
-        if (row.LogID && row.MemberEmail) {
-          if (row.Type && row.Type.includes("Legacy")) {
-             const legacyParentId = Object.keys(keyMap).find(key => keyMap[key] === row.MemberEmail) || legacySnap.docs.find(d => d.data().email === row.MemberEmail)?.id
-             
-             if (legacyParentId) {
-               const logRef = doc(db, "legacy_members", legacyParentId, "legacyLogs", row.LogID)
-               batch.set(logRef, {
-                 date: row.Date,
-                 activity: row.Activity,
-                 hours: parseFloat(row.Hours),
-                 status: row.Status,
-                 applyToNextYear: row.FiscalYearRollover === "Y"
-               })
-               count++
-             }
-          } else {
-             const logRef = doc(db, "logs", row.LogID)
-             batch.set(logRef, {
-               memberId: emailMap[row.MemberEmail] || row.MemberEmail, 
-               date: row.Date,
-               activity: row.Activity,
-               hours: parseFloat(row.Hours),
-               status: row.Status,
-               applyToNextYear: row.FiscalYearRollover === "Y"
-             }, { merge: true })
-             count++
-          }
-        } else if (row['Key']) {
-           const rawKey = row['Key']
-           const memberKey = parseInt(rawKey).toString() 
-           const memberDocID = keyMap[memberKey]
+        let memberId = null
+        
+        // Try to find the owner of this log
+        if (row.MemberEmail) {
+           memberId = emailMap[row.MemberEmail.toLowerCase()]
+        } else if (row.Key) {
+           memberId = keyMap[row.Key.toString()]
+        }
 
-           if (memberDocID) {
-             const newLogRef = doc(collection(db, "legacy_members", memberDocID, "legacyLogs"))
-             batch.set(newLogRef, {
-               date: row['When'],
-               activity: row['Description'],
-               hours: parseFloat(row['Hours']) || 0,
-               importedAt: new Date()
-             })
-             count++
-           }
+        if (memberId) {
+           const logId = row.LogID || doc(collection(db, "logs")).id
+           const logRef = doc(db, "logs", logId)
+           
+           batch.set(logRef, {
+             memberId: memberId,
+             date: row.Date || row.When,
+             activity: row.Activity || row.Description,
+             hours: parseFloat(row.Hours) || 0,
+             status: row.Status || "approved",
+             applyToNextYear: row.FiscalYearRollover === "Y"
+           }, { merge: true })
+           count++
         }
       }
 
@@ -455,28 +381,16 @@ const handleCreditsUpload = (e) => {
     }
   })
 }
-
-const handleClearLegacy = async () => {
-  if (!window.confirm("This will DELETE ALL 'legacy_members'. Are you sure?")) return
-  loading.value = true
-  status.value = "Deleting..."
-  const snapshot = await getDocs(collection(db, "legacy_members"))
-  const batch = writeBatch(db)
-  snapshot.docs.forEach((doc) => batch.delete(doc.ref))
-  await batch.commit()
-  status.value = `Deleted ${snapshot.size} legacy records.`
-  loading.value = false
-}
 </script>
 
 <template>
   <div class="p-6 border-2 border-dashed border-gray-300 rounded bg-gray-50 my-8">
-    <h2 className="text-xl font-bold mb-4">Admin: Data Tools</h2>
+    <h2 class="text-xl font-bold mb-4">Admin: Data Tools</h2>
     
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 border-b border-gray-200 pb-6">
       <div>
-        <h3 className="font-bold mb-2 text-blue-800">Export Data (Backup)</h3>
-        <div className="flex gap-2">
+        <h3 class="font-bold mb-2 text-blue-800">Export Data (Backup)</h3>
+        <div class="flex gap-2">
           <button 
             @click="handleExportMembers"
             :disabled="loading"
@@ -505,7 +419,7 @@ const handleClearLegacy = async () => {
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div>
-        <h3 className="font-bold mb-2">1. Import Members</h3>
+        <h3 class="font-bold mb-2">1. Import Members</h3>
         <p class="text-xs text-gray-500 mb-2">Accepts original Excel CSV or System Backup CSV</p>
         <input 
           type="file" 
@@ -517,7 +431,7 @@ const handleClearLegacy = async () => {
       </div>
 
       <div class="border-l pl-6">
-        <h3 className="font-bold mb-2">2. Import Work Credits</h3>
+        <h3 class="font-bold mb-2">2. Import Work Credits</h3>
         <p class="text-xs text-gray-500 mb-2">Accepts original Excel CSV or System Backup CSV</p>
         <input 
           type="file" 
@@ -527,17 +441,6 @@ const handleClearLegacy = async () => {
           class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
         />
       </div>
-    </div>
-    
-    <div class="mt-6 pt-6 border-t text-right">
-      <h3 className="font-bold mb-2 text-red-600">Danger Zone</h3>
-      <button 
-        @click="handleClearLegacy"
-        :disabled="loading"
-        class="bg-red-100 text-red-700 px-4 py-2 rounded hover:bg-red-200 disabled:opacity-50"
-      >
-        Clear All Legacy Data
-      </button>
     </div>
     
     <p v-if="status" class="mt-4 font-mono text-sm bg-white p-2 border">{{ status }}</p>

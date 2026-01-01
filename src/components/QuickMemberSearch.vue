@@ -15,39 +15,21 @@ onMounted(async () => {
   try {
     const combined = []
     
-    // 1. Fetch Registered Members
+    // Fetch ALL Members (Registered + Legacy/Unregistered)
     const memSnap = await getDocs(collection(db, "members"))
+    
     memSnap.forEach(doc => {
       const d = doc.data()
-      // FILTER: Skip Inactive
-      if (d.status === 'Inactive') return 
-
+      // Note: We include 'Inactive' here so Admins can find old records
       combined.push({
         id: doc.id,
-        uid: doc.id,
+        uid: doc.id, // Critical for dashboard linking
         firstName: d.firstName,
         lastName: d.lastName,
         email: d.email,
-        type: 'registered',
-        role: d.role
-      })
-    })
-
-    // 2. Fetch Legacy Members
-    const legSnap = await getDocs(collection(db, "legacy_members"))
-    legSnap.forEach(doc => {
-      const d = doc.data()
-      // FILTER: Skip Inactive
-      if (d.status === 'Inactive') return
-
-      combined.push({
-        id: doc.id,
-        uid: doc.id,
-        firstName: d.firstName,
-        lastName: d.lastName,
-        email: d.email,
-        type: 'legacy',
-        role: 'member'
+        type: 'registered', // You can keep this or simplify since everyone is registered now
+        role: d.role,
+        status: d.status
       })
     })
 
@@ -66,7 +48,8 @@ const filteredResults = computed(() => {
   
   return members.value.filter(m => {
     const full = `${m.firstName} ${m.lastName}`.toLowerCase()
-    return full.includes(q) || (m.email && m.email.toLowerCase().includes(q))
+    const email = (m.email || "").toLowerCase()
+    return full.includes(q) || email.includes(q)
   })
 })
 
@@ -77,6 +60,7 @@ const handleSelect = (member) => {
 }
 
 const handleBlur = () => {
+  // Delay closing so the click can register
   setTimeout(() => {
     showDropdown.value = false
   }, 200)
@@ -92,7 +76,7 @@ const handleBlur = () => {
         v-model="searchQuery" 
         @focus="showDropdown = true"
         @blur="handleBlur"
-        placeholder="Find a member..." 
+        placeholder="Search members (active, inactive, legacy)..." 
         class="w-full pl-10 pr-4 py-2 border rounded shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
       />
       <div v-if="loading" class="absolute right-3 top-2.5">
@@ -118,18 +102,21 @@ const handleBlur = () => {
               </div>
               <div class="text-xs text-gray-500">{{ member.email }}</div>
             </div>
-            <span 
-              v-if="member.type === 'legacy'" 
-              class="text-[10px] bg-orange-100 text-orange-800 px-2 py-0.5 rounded uppercase font-bold"
-            >
-              Legacy
-            </span>
-            <span 
-              v-else-if="member.role !== 'member'" 
-              class="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded uppercase font-bold"
-            >
-              {{ member.role }}
-            </span>
+            
+            <div class="flex flex-col items-end gap-1">
+               <span 
+                v-if="member.role !== 'member'" 
+                class="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded uppercase font-bold"
+              >
+                {{ member.role }}
+              </span>
+              <span 
+                v-if="member.status && member.status !== 'Active'" 
+                class="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded uppercase font-bold"
+              >
+                {{ member.status }}
+              </span>
+            </div>
           </div>
         </li>
       </ul>

@@ -13,61 +13,74 @@ const showAll = ref(false)
 onMounted(async () => {
   loading.value = true
   
-  const membersSnap = await getDocs(collection(db, "members"))
-  const registered = membersSnap.docs.map(doc => ({
-    uid: doc.id,
-    type: 'registered',
-    ...doc.data()
-  }))
+  try {
+    // 1. Fetch ALL members (Registered + Migrated Legacy)
+    const membersSnap = await getDocs(collection(db, "members"))
+    
+    const all = membersSnap.docs.map(doc => {
+      const d = doc.data()
+      return {
+        uid: doc.id,
+        // If they were migrated, they likely have status: 'Unregistered'
+        // We can treat that effectively as the old "legacy" type for display purposes
+        ...d
+      }
+    })
 
-  const legacySnap = await getDocs(collection(db, "legacy_members"))
-  const legacy = legacySnap.docs.map(doc => ({
-    uid: "LEGACY_" + doc.id,
-    realId: doc.id,
-    type: 'legacy',
-    ...doc.data()
-  }))
-
-  const all = [...registered, ...legacy].sort((a, b) => 
-    (a.lastName || "").localeCompare(b.lastName || "")
-  )
+    // 2. Sort Alphabetically
+    all.sort((a, b) => (a.lastName || "").localeCompare(b.lastName || ""))
+    
+    combinedMembers.value = all
+  } catch (err) {
+    console.error("Error loading members:", err)
+  }
   
-  combinedMembers.value = all
   loading.value = false
 })
 
 const filteredMembers = computed(() => {
   return combinedMembers.value.filter(m => {
     // 1. Check Status
-    if (!showAll.value && m.status && m.status !== 'Active') return false
+    // If "Show All" is unchecked, hide Inactive. 
+    // (Note: You usually want to see 'Unregistered' people to add logs for them, 
+    // so we typically only hide 'Inactive' explicitly).
+    if (!showAll.value && m.status === 'Inactive') return false
 
     // 2. Check Search Term
-    const search = searchTerm.value.toLowerCase()
-    const fullString = `${m.firstName} ${m.lastName} ${m.firstName2 || ''} ${m.lastName2 || ''} ${m.email}`.toLowerCase()
-    return fullString.includes(search)
+    if (!searchTerm.value) return true
+    
+    const term = searchTerm.value.toLowerCase()
+    const fullName = `${m.firstName} ${m.lastName}`.toLowerCase()
+    const email = (m.email || "").toLowerCase()
+    
+    return fullName.includes(term) || email.includes(term)
   })
 })
 
 const handleSelect = (event) => {
-  const selectedUid = event.target.value
-  const selected = combinedMembers.value.find(m => m.uid === selectedUid)
-  emit('select', selected || null)
+  const uid = event.target.value
+  if (!uid) {
+    emit('select', null)
+    return
+  }
+  const user = combinedMembers.value.find(m => m.uid === uid)
+  emit('select', user)
 }
 </script>
 
 <template>
-  <div class="bg-blue-50 p-4 rounded border border-blue-200 mb-6">
-    <h3 class="text-sm font-bold text-blue-800 mb-2 uppercase tracking-wide">
-      Admin Mode: Log hours for others
-    </h3>
+  <div class="bg-blue-50 p-4 rounded border border-blue-100">
+    <h3 class="font-bold text-blue-900 mb-2 text-sm uppercase">Select Member to Manage</h3>
     
-    <p v-if="loading" class="text-sm text-blue-600">Loading member list...</p>
-    
-    <div v-else>
-      <div class="flex flex-col md:flex-row gap-2 mb-2">
+    <div v-if="loading" class="text-xs text-gray-500 animate-pulse">
+      Loading member list...
+    </div>
+
+    <div v-else class="space-y-3">
+      <div class="flex gap-2">
         <input 
-          type="text"
-          placeholder="Search by Name..."
+          type="text" 
+          placeholder="Filter by name or email..." 
           class="flex-1 p-2 border rounded border-blue-300 focus:outline-none focus:border-blue-500"
           v-model="searchTerm"
         />
@@ -95,15 +108,19 @@ const handleSelect = (event) => {
           :key="m.uid" 
           :value="m.uid" 
           class="py-1"
-          :class="{ 'text-gray-400': m.status && m.status !== 'Active' }"
+          :class="{ 'text-gray-400': m.status === 'Inactive' }"
         >
-          {{ m.status && m.status !== 'Active' ? `[${m.status.toUpperCase()}]` : "" }} 
+          <template v-if="m.status && m.status !== 'Active'">
+            ** 
+          </template>
+          
           {{ m.lastName }}, {{ m.firstName }} 
-          {{ m.firstName2 ? `& ${m.lastName2 && m.lastName2 !== m.lastName ? m.lastName2 + ', ' : ''}${m.firstName2}` : '' }} 
-          {{ m.type === 'legacy' ? "(Not Registered)" : "(Active)" }} 
-          {{ m.membershipType ? `(${m.membershipType})` : "" }}
         </option>
       </select>
+      
+      <p class="text-xs text-blue-800 mt-1">
+        * Select a user to view their profile and add logs.
+      </p>
     </div>
   </div>
 </template>

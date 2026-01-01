@@ -8,6 +8,7 @@ import { db, auth } from '../firebase'
 import ProfileEditor from './ProfileEditor.vue'
 import NewMemberForm from './NewMemberForm.vue'
 import QuickMemberSearch from './QuickMemberSearch.vue'
+import ConsolidateTool from './ConsolidateTool.vue' 
 
 // Dashboard Views
 import MemberView from './dashboard/MemberView.vue'
@@ -20,7 +21,7 @@ const props = defineProps({
 
 // --- STATE ---
 const memberData = ref(null)
-const targetUser = ref(null) // Proxy view target
+const targetUser = ref(null) 
 const isEditing = ref(false)
 const showNewMemberModal = ref(false) 
 const error = ref(null)
@@ -47,7 +48,7 @@ const handleMemberSaved = () => {
 const handleAdminSelectUser = (user) => {
   targetUser.value = user
   if (user) {
-    activeTab.value = 'membership'
+    activeTab.value = 'membership' // Auto-switch to Member View
   }
 }
 
@@ -58,29 +59,54 @@ const syncProfile = async () => {
 
   try {
     const docRef = doc(db, "members", props.user.uid)
-    let docSnap = null
-
-    try {
-      docSnap = await getDoc(docRef)
-    } catch (readErr) {
-      console.error("Critical Profile Read Error:", readErr)
-      throw readErr 
-    }
+    const docSnap = await getDoc(docRef)
 
     if (docSnap.exists()) {
       memberData.value = { ...docSnap.data(), uid: props.user.uid }
-    } else {
-      const newProfile = {
-        email: props.user.email,
-        firstName: "New",
-        lastName: "Member",
-        role: "member",
-        membershipType: "Regular"
+    } 
+    else {
+      // Claim Profile Logic
+      const emailQuery = query(collection(db, "members"), where("email", "==", props.user.email))
+      const emailSnap = await getDocs(emailQuery)
+
+      if (!emailSnap.empty) {
+        const oldProfileDoc = emailSnap.docs[0]
+        const oldData = oldProfileDoc.data()
+        
+        const batch = writeBatch(db)
+        batch.set(docRef, {
+          ...oldData,
+          uid: props.user.uid,
+          status: 'Active',
+          claimedAt: new Date()
+        })
+
+        const logsQuery = query(collection(db, "logs"), where("memberId", "==", oldProfileDoc.id))
+        const logsSnap = await getDocs(logsQuery)
+        
+        logsSnap.forEach(logDoc => {
+          batch.update(logDoc.ref, { memberId: props.user.uid })
+        })
+
+        batch.delete(oldProfileDoc.ref)
+        await batch.commit()
+
+        memberData.value = { ...oldData, uid: props.user.uid, status: 'Active' }
+      } 
+      else {
+        const newProfile = {
+          email: props.user.email,
+          firstName: "New",
+          lastName: "Member",
+          role: "member",
+          membershipType: "Regular",
+          status: "Active",
+          joinedDate: new Date().toISOString()
+        }
+        await setDoc(docRef, newProfile)
+        memberData.value = { ...newProfile, uid: props.user.uid }
       }
-      await setDoc(docRef, newProfile)
-      memberData.value = { ...newProfile, uid: props.user.uid }
     }
-    // Legacy merge logic kept intact in your actual file...
   } catch (err) {
     console.error("Error loading profile:", err)
     error.value = err.message
@@ -129,6 +155,10 @@ const handleProfileUpdate = (newData) => {
       </button>
     </header>
 
+    <div v-if="isManagerOrAdmin" class="mb-6 flex justify-end">
+       <QuickMemberSearch @select="handleAdminSelectUser" />
+    </div>
+
     <div v-if="isManagerOrAdmin" class="flex gap-4 mb-6 border-b overflow-x-auto">
       <button 
         @click="activeTab = 'membership'"
@@ -156,10 +186,7 @@ const handleProfileUpdate = (newData) => {
     </div>
 
     <div v-if="!isManagerOrAdmin || activeTab === 'membership'" class="animate-fade-in">
-      <div v-if="isManagerOrAdmin" class="mb-6 flex justify-end">
-         <QuickMemberSearch @select="handleAdminSelectUser" />
-      </div>
-
+      
       <MemberView
         :user="activeUser"
         :currentUserRole="memberData.role"
@@ -177,6 +204,7 @@ const handleProfileUpdate = (newData) => {
     </div>
 
     <div v-if="isManagerOrAdmin && activeTab === 'admin'" class="animate-fade-in">
+
       <AdminConsole
         :currentUser="memberData"
         :refreshKey="refreshKey"

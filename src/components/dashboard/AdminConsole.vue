@@ -6,9 +6,7 @@ import Accordion from '../Accordion.vue'
 import ManagerLogView from '../ManagerLogView.vue'
 import BulkEntryTool from '../BulkEntryTool.vue'
 import SheetArchive from '../SheetArchive.vue'
-import AdminMemberSelect from '../AdminMemberSelect.vue'
 import AdminPendingReview from '../AdminPendingReview.vue'
-import LegacyLinkTool from '../datatools/LegacyLinkTool.vue'
 import AdminDataTools from '../AdminDataTools.vue'
 import DeduplicateTool from '../datatools/DeduplicateTool.vue'
 
@@ -61,23 +59,9 @@ const clearResume = () => { resumeSheet.value = null }
         />
       </Accordion>
 
-      <Accordion title="👤 Log Hours for Others" color="blue">
-         <AdminMemberSelect 
-           :key="refreshKey" 
-           @select="(u) => $emit('select-user', u)" 
-         />
-         <p class="text-xs text-blue-800 mt-2 bg-blue-50 p-2 rounded">
-           * Selecting a user here will automatically switch you to the "Member View" tab to edit their logs.
-         </p>
-      </Accordion>
-
       <template v-if="isAdmin">
         <Accordion title="⚠️ Pending Review / Applicants" color="orange">
           <AdminPendingReview />
-        </Accordion>
-
-        <Accordion title="🔗 Manual Data Link (Orphans)" color="purple">
-          <LegacyLinkTool />
         </Accordion>
 
         <Accordion title="💾 Import & Export Data" color="gray">
