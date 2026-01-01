@@ -4,9 +4,9 @@ import { onAuthStateChanged, signOut } from "firebase/auth"
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore"
 import { auth, db } from './firebase'
 
-import Login from './modules/auth/Login.vue' 
-import Dashboard from './components/dashboard/Dashboard.vue'
-import KioskMode from './modules/kiosk/KioskMode.vue'
+import Login from '@modules/auth/Login.vue' 
+import Dashboard from '@components/dashboard/Dashboard.vue'
+import KioskMode from '@modules/kiosk/KioskMode.vue'
 
 const user = ref(null)
 const loading = ref(true)

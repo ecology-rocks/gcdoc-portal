@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy } from "firebase/firestore"
 import { db } from '../../firebase'
-import NotificationToast from '../../components/common/NotificationToast.vue' // <--- IMPORT
+import NotificationToast from '@components/common/NotificationToast.vue' // <--- IMPORT
 
 const loading = ref(false)
 const events = ref([])

@@ -2,9 +2,9 @@
 import { ref, watch, onMounted } from 'vue'
 import { collection, query, where, getDocs, doc, setDoc, getDoc, updateDoc } from "firebase/firestore"
 import { db } from '../../firebase'
-import Accordion from '../../components/common/Accordion.vue'
-import NotificationToast from '../../components/common/NotificationToast.vue'
-import ConfirmModal from '../../components/common/ConfirmModal.vue'
+import Accordion from '@components/common/Accordion.vue'
+import NotificationToast from '@components/common/NotificationToast.vue'
+import ConfirmModal from '@components/common/ConfirmModal.vue'
 
 const props = defineProps({
   user: { type: Object, required: true }

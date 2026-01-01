@@ -3,8 +3,8 @@ import { ref, watch, computed } from 'vue'
 import { collection, query, where, getDocs, deleteDoc, doc, getDoc, updateDoc, addDoc } from "firebase/firestore"
 import { db, auth } from '../../firebase'
 import { getFiscalYear, formatDateStandard, parseDateSafe } from '../../utils'
-import NotificationToast from '../../components/common/NotificationToast.vue'
-import ConfirmModal from '../../components/common/ConfirmModal.vue'
+import NotificationToast from '@components/common/NotificationToast.vue'
+import ConfirmModal from '@components/common/ConfirmModal.vue'
 
 const props = defineProps({
   user: { type: Object, required: true },
