@@ -2,7 +2,7 @@
 import { ref, watch, onMounted } from 'vue'
 import { collection, query, where, getDocs, doc, setDoc, getDoc, updateDoc } from "firebase/firestore"
 import { db } from '../../firebase'
-import Accordion from '../Accordion.vue'
+import Accordion from '../common/Accordion.vue'
 import NotificationToast from '../popups/NotificationToast.vue'
 import ConfirmModal from '../popups/ConfirmModal.vue'
 

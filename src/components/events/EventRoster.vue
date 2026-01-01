@@ -2,7 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { collection, query, where, getDocs, orderBy } from "firebase/firestore"
 import { db } from '../../firebase' // moved up 2 levels
-import Accordion from '../Accordion.vue' // moved up 1 level
+import Accordion from '../common/Accordion.vue' // moved up 1 level
 import NotificationToast from '../popups/NotificationToast.vue' // in popups folder
 
 const loading = ref(false)

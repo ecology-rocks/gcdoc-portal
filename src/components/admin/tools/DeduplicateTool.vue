@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { collection, query, where, getDocs, writeBatch, doc } from "firebase/firestore"
-import { db } from '../../firebase'
+import { db } from '../../../firebase'
 
 const props = defineProps({
   user: { type: Object, required: true }

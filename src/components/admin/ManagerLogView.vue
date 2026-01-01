@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { collection, query, getDocs, orderBy, doc, updateDoc, deleteDoc } from "firebase/firestore"
-import { db } from '../firebase'
+import { db } from '../../firebase'
 
 const props = defineProps({
   currentUserRole: String // 'manager' or 'admin'

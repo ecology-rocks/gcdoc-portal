@@ -1,3 +1,5 @@
+import Papa from 'papaparse'
+
 export function getFiscalYear(dateString) {
   if (!dateString) return 0;
   const date = new Date(dateString);
@@ -119,4 +121,17 @@ export function formatDateStandard(val) {
   const d = parseDateSafe(val);
   if (isNaN(d.getTime()) || d.getFullYear() === 1970) return new Date().toISOString().slice(0, 10);
   return d.toISOString().slice(0, 10);
+}
+
+export function downloadCSV(data, filename) {
+  const csv = Papa.unparse(data);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  link.setAttribute("href", url);
+  link.setAttribute("download", filename);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }

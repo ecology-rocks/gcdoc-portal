@@ -1,14 +1,14 @@
 <script setup>
 import { ref, computed } from 'vue'
-import Accordion from '../Accordion.vue'
+import Accordion from '../common/Accordion.vue'
 
 // Admin Tools
-import ManagerLogView from '../ManagerLogView.vue'
-import BulkEntryTool from '../BulkEntryTool.vue'
-import SheetArchive from '../SheetArchive.vue'
-import AdminPendingReview from '../AdminPendingReview.vue'
-import AdminDataTools from '../AdminDataTools.vue'
-import DeduplicateTool from '../datatools/DeduplicateTool.vue'
+import ManagerLogView from '../admin/ManagerLogView.vue'
+import BulkEntryTool from '../admin/BulkEntryTool.vue'
+import SheetArchive from '../admin/SheetArchive.vue'
+import AdminPendingReview from '../admin/AdminPendingReview.vue'
+import AdminDataTools from '../admin/AdminDataTools.vue'
+import DeduplicateTool from '../admin/tools/DeduplicateTool.vue'
 
 const props = defineProps({
   currentUser: { type: Object, required: true }, // The logged-in admin

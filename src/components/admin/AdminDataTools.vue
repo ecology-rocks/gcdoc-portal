@@ -2,25 +2,12 @@
 import { ref } from 'vue'
 import Papa from 'papaparse'
 import { collection, writeBatch, doc, getDocs, query, where } from "firebase/firestore"
-import { db } from '../firebase'
-import { calculateRewards } from '../utils'
+import { db } from '../../firebase'
+import { calculateRewards, downloadCSV } from '../../utils'
 
 const loading = ref(false)
 const status = ref("")
 
-// --- HELPER: DOWNLOAD CSV ---
-const downloadCSV = (data, filename) => {
-  const csv = Papa.unparse(data)
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const link = document.createElement("a")
-  const url = URL.createObjectURL(blob)
-  link.setAttribute("href", url)
-  link.setAttribute("download", filename)
-  link.style.visibility = 'hidden'
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-}
 
 const handleMeetingReport = async () => {
   loading.value = true

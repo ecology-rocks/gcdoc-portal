@@ -5,9 +5,9 @@ import { doc, getDoc, setDoc, query, collection, where, getDocs, writeBatch } fr
 import { db, auth } from '../firebase'
 
 // --- COMPONENTS ---
-import ProfileEditor from './ProfileEditor.vue'
-import NewMemberForm from './NewMemberForm.vue'
-import QuickMemberSearch from './QuickMemberSearch.vue'
+import ProfileEditor from './members/ProfileEditor.vue' // Updated path
+import NewMemberForm from './members/NewMemberForm.vue' // Updated path
+import QuickMemberSearch from './members/QuickMemberSearch.vue' // Updated path
 
 // Dashboard Views
 import MemberView from './dashboard/MemberView.vue'

@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { doc, setDoc, getDoc, collection, query, where, getDocs } from "firebase/firestore"
-import { db } from '../firebase'
+import { db } from '../../firebase'
 
 const emit = defineEmits(['close', 'saved'])
 

@@ -2,7 +2,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage"
 import { collection, addDoc, serverTimestamp, getDocs, updateDoc, deleteDoc, doc, query, where, collectionGroup } from "firebase/firestore"
-import { db, storage } from '../firebase'
+import { db, storage } from '../../firebase'
 
 const props = defineProps({
   resumeSheet: Object,
