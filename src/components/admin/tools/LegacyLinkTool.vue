@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { collection, getDocs, writeBatch, doc, query } from "firebase/firestore"
-import { db } from '../../firebase'
+import { db } from '../../../firebase'
 
 const loading = ref(true)
 const processing = ref(false)

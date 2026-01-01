@@ -1,9 +1,9 @@
 <script setup>
 import { computed } from 'vue'
 import Accordion from '../common/Accordion.vue'
-import VolunteerAvailabilityForm from '../events/VolunteerAvailabilityForm.vue'
-import EventManager from '../events/EventManager.vue'
-import EventRoster from '../events/EventRoster.vue'
+import VolunteerAvailabilityForm from '../../modules/events/VolunteerAvailabilityForm.vue'
+import EventManager from '../../modules/events/EventManager.vue'
+import EventRoster from '../../modules/events/EventRoster.vue'
 
 const props = defineProps({
   user: { type: Object, required: true }, // The user we are viewing (usually self)

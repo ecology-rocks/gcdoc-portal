@@ -2,8 +2,8 @@
 import { ref, watch, computed } from 'vue'
 import { collection, query, where, getDocs, orderBy } from "firebase/firestore"
 import { db } from '../../firebase' // moved up 2 levels
-import Accordion from '../common/Accordion.vue' // moved up 1 level
-import NotificationToast from '../popups/NotificationToast.vue' // in popups folder
+import Accordion from '../../components/common/Accordion.vue' // moved up 1 level
+import NotificationToast from '../../components/common/NotificationToast.vue' // in popups folder
 
 const loading = ref(false)
 const selectedMonth = ref(new Date().toISOString().slice(0, 7)) // "YYYY-MM"

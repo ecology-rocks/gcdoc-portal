@@ -4,10 +4,10 @@ import { doc, getDoc, updateDoc } from "firebase/firestore"
 import { db, auth } from '../../firebase'
 
 // Components
-import VolunteerLogs from '../members/VolunteerLogs.vue'
+import VolunteerLogs from './VolunteerLogs.vue'
 import VolunteerAvailabilityForm from '../events/VolunteerAvailabilityForm.vue'
-import LogHoursForm from '../LogHoursForm.vue'
-import NotificationToast from '../popups/NotificationToast.vue'
+import LogHoursForm from './LogHoursForm.vue'
+import NotificationToast from '../../components/common/NotificationToast.vue'
 
 const props = defineProps({
   user: { type: Object, required: true },

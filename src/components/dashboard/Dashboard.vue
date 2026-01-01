@@ -5,12 +5,12 @@ import { doc, getDoc, setDoc, query, collection, where, getDocs, writeBatch } fr
 import { db, auth } from '../../firebase'
 
 // --- COMPONENTS ---
-import ProfileEditor from '../members/ProfileEditor.vue' // Updated path
-import NewMemberForm from '../members/NewMemberForm.vue' // Updated path
-import QuickMemberSearch from '../members/QuickMemberSearch.vue' // Updated path
+import ProfileEditor from '../../modules/members/ProfileEditor.vue' // Updated path
+import NewMemberForm from '../../modules/members/NewMemberForm.vue' // Updated path
+import QuickMemberSearch from '../../modules/members/QuickMemberSearch.vue' // Updated path
 
 // Dashboard Views
-import MemberView from './MemberView.vue'
+import MemberView from '../../modules/members/MemberView.vue'
 import EventsView from './EventsView.vue'
 import AdminConsole from './AdminConsole.vue'
 

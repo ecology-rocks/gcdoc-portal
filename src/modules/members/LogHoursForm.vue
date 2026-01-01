@@ -1,8 +1,8 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { collection, addDoc, doc, updateDoc, arrayUnion } from "firebase/firestore"
-import { db, auth } from '../firebase'
-import { formatDateStandard } from '../utils'
+import { db, auth } from '../../firebase'
+import { formatDateStandard } from '../../utils'
 
 const props = defineProps({
   user: { type: Object, required: true },
