@@ -168,13 +168,7 @@ const handleProfileUpdate = (newData) => {
         Member View
       </button>
       
-      <button 
-        @click="activeTab = 'events'"
-        class="pb-2 px-4 font-bold text-sm border-b-2 transition-colors whitespace-nowrap"
-        :class="activeTab === 'events' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
-      >
-        Events
-      </button>
+      <!--button @click="activeTab = 'events'" class="pb-2 px-4 font-bold text-sm border-b-2 transition-colors whitespace-nowrap"  :class="activeTab === 'events' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'" >Events</button-->
 
       <button 
         @click="activeTab = 'admin'"
