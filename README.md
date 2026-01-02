@@ -1,6 +1,16 @@
 # **GCDOC Portal**
 A unified management platform for Gem City Dog Obedience Club, supporting multiple sports, event scheduling, and facility maintenance.
 
+## Outstanding To-Dos
+ * KIOSK - Have the daily schedule ("WeeklySchedule.vue") show as a screen saver? Or maybe a "right now" and "later"?
+ * ADMIN - Need to be able to bulk approve
+ * ADMIN - Need to be able to filter by approval status
+ * ADMIN - Need to be able to edit hours instead of just delete
+ * TEACH - Need to be able to do student import by email
+ * TEACH - Need to be able to export printable Rosters
+ * TEACH - Need to be able to submit rosters digitally.
+ * EVENT - Lots of upgrades needed, including finishing the half-assed Event Availability Scheduling Tool. 
+
 ## **Roadmap: The "Club Hub" Expansion (Current Priority)**
 
 We are refactoring the application to move beyond simple member management into a full Volunteer Scheduling and Facility Management system. This allows us to coordinate shared resources (volunteers, physical locations) across different sports.
@@ -41,6 +51,7 @@ We are refactoring the application to move beyond simple member management into 
   * Update Kiosk to query the new events collection for "Today's Events".  
   * Allow signing into a specific Event (Practice/Trial) vs General Maintenance.
   * Allow signing in as a participant and also as a volunteer.
+ 
 
 ## **Future Phase: The "Classes & Dogs" Module**
 

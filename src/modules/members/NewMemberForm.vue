@@ -1,12 +1,13 @@
 <script setup>
 import { ref } from 'vue'
-import { doc, setDoc, getDoc, collection, query, where, getDocs } from "firebase/firestore"
-import { db } from '../../firebase'
-
+import { addDoc, collection, query, where, getDocs } from "firebase/firestore"
+import { db } from '@/firebase'
+import NotificationToast from '@components/common/NotificationToast.vue'
 const emit = defineEmits(['close', 'saved'])
 
 const loading = ref(false)
 const error = ref('')
+const toast = ref({ show: false, message: '', type: 'success' })
 
 const formData = ref({
   firstName: '',
@@ -35,15 +36,7 @@ const handleSubmit = async () => {
   const emailKey = formData.value.email.trim().toLowerCase()
 
   try {
-    // 1. Check Legacy/Unclaimed Profiles
-    const legacyRef = doc(db, "legacy_members", emailKey)
-    const legacySnap = await getDoc(legacyRef)
 
-    if (legacySnap.exists()) {
-      error.value = "A pre-approved profile for this email already exists."
-      loading.value = false
-      return
-    }
 
     // 2. NEW: Check Fully Registered Members
     // We must query because 'members' uses UID as the ID, not email.
@@ -57,17 +50,25 @@ const handleSubmit = async () => {
     }
 
     // 3. Create the record
-    await setDoc(legacyRef, {
+await addDoc(collection(db, "members"), {
       ...formData.value,
       email: emailKey,
-      invitedAt: new Date(),
-      status: 'Active', 
-      legacyKey: null 
+      createdAt: new Date(), // Changed from invitedAt to createdAt for consistency
+      status: 'Active',
+      isRegistered: false // Optional flag: helpful to know they haven't claimed the account via Auth yet
     })
 
-    alert(`Success! Profile for ${formData.value.email} created.\nWhen they sign up, this data will be linked automatically.`)
-    emit('saved')
-    emit('close')
+   // SUCCESS: Show Toast instead of Alert
+    toast.value = { 
+      show: true, 
+      message: `Success! Profile for ${formData.value.email} created.`, 
+      type: 'success' 
+    }
+
+setTimeout(() => {
+      emit('saved')
+      emit('close')
+    }, 1500)
 
   } catch (err) {
     console.error(err)
@@ -166,6 +167,12 @@ const handleSubmit = async () => {
           </button>
         </div>
       </form>
+      <NotificationToast 
+        v-if="toast.show" 
+        :message="toast.message" 
+        :type="toast.type" 
+        @close="toast.show = false" 
+      />
     </div>
   </div>
 </template>

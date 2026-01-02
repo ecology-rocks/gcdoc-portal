@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { collection, addDoc, doc, deleteDoc } from "firebase/firestore"
-import { db } from '../../firebase'
+import { db } from '@/firebase'
 
 const props = defineProps(['session'])
 const emit = defineEmits(['success'])

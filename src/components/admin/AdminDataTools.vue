@@ -2,8 +2,8 @@
 import { ref } from 'vue'
 import Papa from 'papaparse'
 import { collection, writeBatch, doc, getDocs, query, where } from "firebase/firestore"
-import { db } from '../../firebase'
-import { calculateRewards, downloadCSV } from '../../utils'
+import { db } from '@/firebase'
+import { calculateRewards, downloadCSV } from '@/utils/utils'
 
 const loading = ref(false)
 const status = ref("")

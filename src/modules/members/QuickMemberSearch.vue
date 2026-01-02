@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { collection, getDocs } from "firebase/firestore"
-import { db } from '../../firebase'
+import { db } from '@/firebase'
 
 const emit = defineEmits(['select'])
 
@@ -76,7 +76,7 @@ const handleBlur = () => {
         v-model="searchQuery" 
         @focus="showDropdown = true"
         @blur="handleBlur"
-        placeholder="Search members (active, inactive, legacy)..." 
+        placeholder="Search members..." 
         class="w-full pl-10 pr-4 py-2 border rounded shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
       />
       <div v-if="loading" class="absolute right-3 top-2.5">

@@ -1,8 +1,8 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { collection, query, where, getDocs, doc, writeBatch, deleteDoc, setDoc, arrayUnion } from "firebase/firestore"
-import { db, auth } from '../../firebase'
-import { calculateRewards } from '../../utils'
+import { db, auth } from '@/firebase'
+import { calculateRewards } from '@/utils/utils'
 
 // --- STATE ---
 const pendingGroups = ref({}) 

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { collection, getDocs } from "firebase/firestore"
-import { db } from '../../firebase'
+import { db } from '@/firebase'
 
 const emit = defineEmits(['select'])
 

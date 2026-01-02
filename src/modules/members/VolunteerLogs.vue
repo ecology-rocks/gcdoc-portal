@@ -1,8 +1,8 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
 import { collection, query, where, getDocs, deleteDoc, doc, getDoc, updateDoc, addDoc } from "firebase/firestore"
-import { db, auth } from '../../firebase'
-import { getFiscalYear, formatDateStandard, parseDateSafe } from '../../utils'
+import { db, auth } from '@/firebase'
+import { getFiscalYear, formatDateStandard, parseDateSafe } from '@/utils/utils'
 import NotificationToast from '@components/common/NotificationToast.vue'
 import ConfirmModal from '@components/common/ConfirmModal.vue'
 

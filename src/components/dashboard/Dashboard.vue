@@ -2,17 +2,23 @@
 import { ref, computed, watch } from 'vue'
 import { signOut } from "firebase/auth"
 import { doc, getDoc, setDoc, query, collection, where, getDocs, writeBatch } from "firebase/firestore"
-import { db, auth } from '../../firebase'
+import { db, auth } from '@/firebase'
+import { can } from '@/utils/permissions'
 
 // --- COMPONENTS ---
 import ProfileEditor from '@modules/members/ProfileEditor.vue' // Updated path
 import NewMemberForm from '@modules/members/NewMemberForm.vue' // Updated path
 import QuickMemberSearch from '@modules/members/QuickMemberSearch.vue' // Updated path
 
+
+
+
 // Dashboard Views
 import MemberView from '@modules/members/MemberView.vue'
-import EventsView from './EventsView.vue'
+import ClassRoster from '@/modules/teachers/ClassRoster.vue'
+import RegistrarConsole from '@/modules/registrar/RegistrarConsole.vue'
 import AdminConsole from './AdminConsole.vue'
+
 
 const props = defineProps({
   user: { type: Object, required: true }
@@ -20,28 +26,29 @@ const props = defineProps({
 
 // --- STATE ---
 const memberData = ref(null)
-const targetUser = ref(null) 
+const targetUser = ref(null)
 const isEditing = ref(false)
-const showNewMemberModal = ref(false) 
+const showNewMemberModal = ref(false)
 const error = ref(null)
-const refreshKey = ref(0) 
+const refreshKey = ref(0)
 
 // UI State
-const activeTab = ref('membership') 
+const activeTab = ref('membership')
 
 // Computed
 const activeUser = computed(() => targetUser.value || memberData.value)
 const isViewingSelf = computed(() => activeUser.value && activeUser.value.uid === props.user.uid)
 const isAdmin = computed(() => memberData.value?.role === 'admin')
-const isManager = computed(() => memberData.value?.role === 'manager')
-const isManagerOrAdmin = computed(() => isAdmin.value || isManager.value)
-
+const isRegistrar = computed(() => isAdmin.value || memberData.value?.role === 'registrar')
+const isManager = computed(() => memberData.value?.role === 'manager' || memberData.value?.role === 'registrar')
+const isStaff = computed(() => isAdmin.value || isManager.value)
+const isTeacher = computed(() => can(memberData.value, 'view_teaching_dashboard'))
 // --- ACTIONS ---
 const handleSignOut = () => signOut(auth)
 
 const handleMemberSaved = () => {
   showNewMemberModal.value = false
-  refreshKey.value++ 
+  refreshKey.value++
 }
 
 const handleAdminSelectUser = (user) => {
@@ -62,7 +69,7 @@ const syncProfile = async () => {
 
     if (docSnap.exists()) {
       memberData.value = { ...docSnap.data(), uid: props.user.uid }
-    } 
+    }
     else {
       // Claim Profile Logic
       const emailQuery = query(collection(db, "members"), where("email", "==", props.user.email))
@@ -71,7 +78,7 @@ const syncProfile = async () => {
       if (!emailSnap.empty) {
         const oldProfileDoc = emailSnap.docs[0]
         const oldData = oldProfileDoc.data()
-        
+
         const batch = writeBatch(db)
         batch.set(docRef, {
           ...oldData,
@@ -82,7 +89,7 @@ const syncProfile = async () => {
 
         const logsQuery = query(collection(db, "logs"), where("memberId", "==", oldProfileDoc.id))
         const logsSnap = await getDocs(logsQuery)
-        
+
         logsSnap.forEach(logDoc => {
           batch.update(logDoc.ref, { memberId: props.user.uid })
         })
@@ -91,7 +98,7 @@ const syncProfile = async () => {
         await batch.commit()
 
         memberData.value = { ...oldData, uid: props.user.uid, status: 'Active' }
-      } 
+      }
       else {
         const newProfile = {
           email: props.user.email,
@@ -125,80 +132,88 @@ const handleProfileUpdate = (newData) => {
 </script>
 
 <template>
+  <!-- LOADING MEMBER PROFILE -->
   <div v-if="error" class="p-6 text-red-600 bg-red-50 border-l-4 border-red-600">
     <h3 class="font-bold">Error Loading Dashboard</h3>
     <p>{{ error }}</p>
     <button @click="handleSignOut" class="mt-4 underline">Sign Out</button>
   </div>
-  
+
   <div v-else-if="!memberData" class="p-6 flex items-center justify-center h-64">
     <div class="text-xl text-gray-400 animate-pulse">Loading profile...</div>
   </div>
 
   <div v-else class="p-6 max-w-4xl mx-auto">
-    
+
     <header class="flex flex-col md:flex-row justify-between items-center mb-6 pb-4 border-b">
       <div>
         <h1 class="text-3xl font-bold text-gray-800">Member Portal</h1>
         <p class="text-gray-500 text-sm">
           Welcome, <strong>{{ memberData.firstName }}</strong>
-          <span v-if="isAdmin" class="ml-2 bg-blue-600 text-white text-[10px] uppercase font-bold px-2 py-0.5 rounded-full">Admin</span>
-          <span v-else-if="isManager" class="ml-2 bg-purple-600 text-white text-[10px] uppercase font-bold px-2 py-0.5 rounded-full">Manager</span>
+          <span v-if="isAdmin"
+            class="ml-2 bg-blue-600 text-white text-[10px] uppercase font-bold px-2 py-0.5 rounded-full">Admin</span>
+          <span v-if="isRegistrar"
+            class="ml-2 bg-purple-600 text-white text-[10px] uppercase font-bold px-2 py-0.5 rounded-full">Registrar</span>
+          <span v-if="isTeacher"
+            class="ml-2 bg-orange-500 text-white text-[10px] uppercase font-bold px-2 py-0.5 rounded-full">Instructor</span>
         </p>
       </div>
-      <button
-        @click="handleSignOut"
-        class="mt-4 md:mt-0 text-sm text-gray-600 hover:text-red-600 font-bold border border-gray-300 px-4 py-2 rounded hover:bg-gray-50 transition"
-      >
+      <button @click="handleSignOut"
+        class="mt-4 md:mt-0 text-sm text-gray-600 hover:text-red-600 font-bold border border-gray-300 px-4 py-2 rounded hover:bg-gray-50 transition">
         Sign Out
       </button>
     </header>
 
-    <div v-if="isManagerOrAdmin" class="mb-6 flex justify-end">
-       <QuickMemberSearch @select="handleAdminSelectUser" />
+    <div v-if="isStaff" class="mb-6 flex justify-end">
+      <QuickMemberSearch @select="handleAdminSelectUser" />
     </div>
 
-    <div v-if="isManagerOrAdmin" class="flex gap-4 mb-6 border-b overflow-x-auto">
-      <button 
-        @click="activeTab = 'membership'"
+    <!-- TABS AND THEIR PERMISSIONS -->
+    <div v-if="isStaff || isTeacher" class="flex gap-4 mb-6 border-b overflow-x-auto">
+      <button @click="activeTab = 'membership'"
         class="pb-2 px-4 font-bold text-sm border-b-2 transition-colors whitespace-nowrap"
-        :class="activeTab === 'membership' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
-      >
+        :class="activeTab === 'membership' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'">
         Member View
       </button>
-      
-      <!--button @click="activeTab = 'events'" class="pb-2 px-4 font-bold text-sm border-b-2 transition-colors whitespace-nowrap"  :class="activeTab === 'events' ? 'border-green-600 text-green-600' : 'border-transparent text-gray-500 hover:text-gray-700'" >Events</button-->
 
-      <button 
-        @click="activeTab = 'admin'"
+      <button v-if="isTeacher" @click="activeTab = 'teaching'"
         class="pb-2 px-4 font-bold text-sm border-b-2 transition-colors whitespace-nowrap"
-        :class="activeTab === 'admin' ? 'border-purple-600 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
-      >
-        Admin Console
+        :class="activeTab === 'teaching' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'">
+        Teaching Schedule
+      </button>
+
+      <button v-if="isRegistrar" @click="activeTab = 'registrar'"
+        class="pb-2 px-4 font-bold text-sm border-b-2 transition-colors whitespace-nowrap"
+        :class="activeTab === 'registrar' ? 'border-purple-600 text-purple-600' : 'border-transparent text-gray-500 hover:text-gray-700'">
+        Registrar Console
+      </button>
+
+      <button v-if="isAdmin" @click="activeTab = 'admin'"
+        class="pb-2 px-4 font-bold text-sm border-b-2 transition-colors whitespace-nowrap"
+        :class="activeTab === 'admin' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700'">
+        Admin HQ
       </button>
     </div>
 
-    <div v-if="!isManagerOrAdmin || activeTab === 'membership'" class="animate-fade-in">
-      
-      <MemberView
-        :user="activeUser"
-        :currentUserRole="memberData.role"
-        :isViewingSelf="isViewingSelf"
-        @close="targetUser = null"
-        @edit="isEditing = true"
-      />
+    <!-- MEMBER VIEW TAB IMPLEMENTATION -->
+    <div v-if="!isStaff || activeTab === 'membership'" class="animate-fade-in">
+
+      <MemberView :user="activeUser" :currentUserRole="memberData.role" :isViewingSelf="isViewingSelf"
+        @close="targetUser = null" @edit="isEditing = true" />
     </div>
 
-    <div v-if="isManagerOrAdmin && activeTab === 'events'" class="animate-fade-in">
-      <EventsView 
-        :user="activeUser" 
-        :currentUserRole="memberData.role" 
-      />
+    <!--div v-if="isStaff && activeTab === 'events'" class="animate-fade-in">
+      <EventsView :user="activeUser" :currentUserRole="memberData.role" />
+    </div-->
+
+    <!-- TEACHER TAB IMPLEMENTATION -->
+    <div v-if="isTeacher && activeTab === 'teaching'" class="animate-fade-in">
+      <ClassRoster :user="activeUser" />
     </div>
 
-    <div v-if="isManagerOrAdmin && activeTab === 'admin'" class="animate-fade-in">
 
-      <AdminConsole
+<div v-if="isRegistrar && activeTab === 'registrar'" class="animate-fade-in">
+      <RegistrarConsole
         :currentUser="memberData"
         :refreshKey="refreshKey"
         @select-user="handleAdminSelectUser"
@@ -206,19 +221,17 @@ const handleProfileUpdate = (newData) => {
       />
     </div>
 
-    <ProfileEditor
-      v-if="isEditing"
-      :targetUser="activeUser"
-      :currentUserRole="memberData.role"
-      @close="isEditing = false"
-      @save="handleProfileUpdate"
-    />
+    <div v-if="isAdmin && activeTab === 'admin'" class="animate-fade-in">
+      <AdminConsole 
+        :currentUser="memberData"
+        @refresh="refreshKey++"
+      />
+    </div>
 
-    <NewMemberForm
-      v-if="showNewMemberModal"
-      @close="showNewMemberModal = false"
-      @saved="handleMemberSaved"
-    />
+    <ProfileEditor v-if="isEditing" :targetUser="activeUser" :currentUserRole="memberData.role"
+      @close="isEditing = false" @save="handleProfileUpdate" />
+
+    <NewMemberForm v-if="showNewMemberModal" @close="showNewMemberModal = false" @saved="handleMemberSaved" />
 
   </div>
 </template>

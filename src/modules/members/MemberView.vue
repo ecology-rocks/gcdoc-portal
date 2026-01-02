@@ -1,7 +1,7 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
 import { doc, getDoc, updateDoc } from "firebase/firestore"
-import { db, auth } from '../../firebase'
+import { db, auth } from '@/firebase'
 
 // Components
 import VolunteerLogs from './VolunteerLogs.vue'

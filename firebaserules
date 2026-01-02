@@ -1,0 +1,74 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: Is the user logged in?
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    // Helper: Is the user Staff? (Safe Check)
+    function isStaff() {
+       return isSignedIn() && 
+          exists(/databases/$(database)/documents/members/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/members/$(request.auth.uid)).data.role in ['manager', 'admin'];
+    }
+
+    // 1. MEMBERS COLLECTION
+    match /members/{userId} {
+      // PERMISSION A: YOU ARE THE OWNER
+      allow read, write: if request.auth.uid == userId;
+      
+      // PERMISSION B: STAFF ACCESS
+      allow read, write: if isStaff();
+    }
+
+    // 2. LEGACY MEMBERS (Updated)
+    match /legacy_members/{memberId} {
+      // Allow reading so new users can find their legacy records to merge
+      allow read: if isSignedIn();
+      allow write: if isStaff();
+      
+      match /legacyLogs/{logId} {
+        allow read, write: if isStaff();
+      }
+    }
+
+    // 3. LOGS
+    match /logs/{logId} {
+      allow read: if isSignedIn() && (resource.data.memberId == request.auth.uid || isStaff());
+      allow create: if isSignedIn();
+      allow update, delete: if isStaff();
+    }
+    
+    // ADD THIS BLOCK:
+    match /volunteer_sheets/{sheetId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+    
+    // Keep your legacy rule if you still have old data there
+    match /sheets/{sheetId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+    // 4. EVENTS & KIOSK SESSIONS
+    match /events/{eventId} {
+      allow read: if isSignedIn();
+      allow write: if isStaff();
+    }
+    match /active_sessions/{sessionId} {
+      allow read, write: if isStaff();
+    }
+
+    // 5. VOLUNTEER AVAILABILITY (NEW)
+    match /volunteer_availability/{docId} {
+      // Managers can see everyone (Roster view)
+      // Users can see their own
+      allow read: if isStaff() || (isSignedIn() && resource.data.userId == request.auth.uid);
+
+      // Users can create/update their own availability
+      allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+    }
+  }
+}

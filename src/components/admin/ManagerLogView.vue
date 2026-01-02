@@ -1,8 +1,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { collection, query, getDocs, orderBy, doc, updateDoc, deleteDoc } from "firebase/firestore"
-import { db } from '../../firebase'
-import { downloadCSV } from '../../utils'
+import { db } from '@/firebase'
+import { downloadCSV } from '@/utils/utils'
 
 const props = defineProps({
   currentUserRole: String // 'manager' or 'admin'

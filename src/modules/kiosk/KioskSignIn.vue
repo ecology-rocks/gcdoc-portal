@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue' 
 import { collection, addDoc } from "firebase/firestore"
-import { db } from '../../firebase'
+import { db } from '@/firebase'
 
 const props = defineProps(['members', 'initialMember']) 
 const emit = defineEmits(['register', 'success'])

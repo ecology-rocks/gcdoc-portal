@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { collection, query, orderBy, getDocs, doc, deleteDoc, updateDoc } from "firebase/firestore"
-import { db } from '../../firebase'
+import { db } from '@/firebase'
 
 const props = defineProps({
   currentUser: {
