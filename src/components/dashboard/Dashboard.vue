@@ -211,23 +211,17 @@ const handleProfileUpdate = (newData) => {
       <ClassRoster :user="activeUser" />
     </div>
 
-
-<div v-if="isRegistrar && activeTab === 'registrar'" class="animate-fade-in">
-      <RegistrarConsole
-        :currentUser="memberData"
-        :refreshKey="refreshKey"
-        @select-user="handleAdminSelectUser"
-        @add-member="showNewMemberModal = true"
-      />
+    <!-- REGISTRAR TAB IMPLEMENTATION-->
+    <div v-if="isRegistrar && activeTab === 'registrar'" class="animate-fade-in">
+      <RegistrarConsole :currentUser="memberData" :refreshKey="refreshKey" @select-user="handleAdminSelectUser"
+        @add-member="showNewMemberModal = true" />
     </div>
-
+    <!-- ADMIN TAB IMPLEMENTATION -->
     <div v-if="isAdmin && activeTab === 'admin'" class="animate-fade-in">
-      <AdminConsole 
-        :currentUser="memberData"
-        @refresh="refreshKey++"
-      />
+      <AdminConsole :currentUser="memberData" @refresh="refreshKey++" />
     </div>
 
+    <!-- MODALS -->
     <ProfileEditor v-if="isEditing" :targetUser="activeUser" :currentUserRole="memberData.role"
       @close="isEditing = false" @save="handleProfileUpdate" />
 

@@ -118,12 +118,12 @@ setTimeout(() => {
            <div>
             <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Membership Type</label>
             <select v-model="formData.membershipType" class="w-full p-2 border rounded bg-white">
-              <option value="Regular">Regular</option>
-              <option value="Applicant">Applicant</option>
-              <option value="Family">Family</option>
-              <option value="Associate">Associate</option>
-              <option value="Lifetime">Lifetime</option>
-              <option value="Junior">Junior</option>
+                <option value="Regular">Regular</option>
+                <option value="Household">Household</option>
+                <option value="Applicant">Applicant</option>
+                <option value="Associate">Associate</option>
+                <option value="Life">Lifetime</option>
+                <option value="Inactive">Inactive</option>
               <option value="Nonmember">Nonmember</option>
             </select>
           </div>

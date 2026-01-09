@@ -45,6 +45,8 @@ onMounted(() => {
   }
 })
 
+const generatePaperCode = () => Math.floor(1000 + Math.random() * 9000).toString()
+
 watch(() => props.resumeSheet, (newVal) => {
   if (newVal) {
     entryDate.value = new Date().toISOString().split('T')[0]
@@ -68,20 +70,6 @@ const fetchSheetEntries = async () => {
     const snapMain = await getDocs(qMain)
     snapMain.forEach(d => {
       results.push({ ...d.data(), id: d.id, collection: 'logs' })
-    })
-
-    // QUERY B: Legacy Logs
-    const qLegacy = query(collectionGroup(db, "legacyLogs"), where("sourceSheetId", "==", targetId))
-    const snapLegacy = await getDocs(qLegacy)
-    snapLegacy.forEach(d => {
-      // Get parent ID for path reconstruction
-      const parentMemberId = d.ref.parent.parent ? d.ref.parent.parent.id : 'Unknown'
-      results.push({ 
-        ...d.data(), 
-        id: d.id, 
-        collection: 'legacyLogs',
-        memberId: parentMemberId
-      })
     })
 
     sheetLogs.value = results.sort((a,b) => {
@@ -113,6 +101,7 @@ const handleUpload = async () => {
     const url = await getDownloadURL(sRef)
 
     const uploaderName = `${props.currentUser.firstName} ${props.currentUser.lastName}`
+    const code = generatePaperCode()
 
     await addDoc(collection(db, "volunteer_sheets"), {
       event: sheetName.value,          
@@ -121,10 +110,10 @@ const handleUpload = async () => {
       uploadedBy: props.currentUser.email,
       uploadedByName: uploaderName,    
       status: 'pending',
-      sheetId: Date.now().toString()
+      sheetId: "#"+code                   // Stores 4-digit code as requested
     })
 
-    alert("Upload Complete!")
+    alert(`Upload Complete! Paper Code: ${code}`)
     file.value = null
     sheetName.value = ''
   } catch (err) {
@@ -301,6 +290,7 @@ const markSheetDone = async () => {
           <p class="text-xs text-blue-700">
             Uploaded by {{ resumeSheet.uploadedByName || resumeSheet.uploadedBy }} | ID: {{ resumeSheet.sheetId }}
           </p>
+          
         </div>
         <div class="flex gap-2">
           <button @click="markSheetDone" class="bg-green-600 text-white text-xs px-3 py-1 rounded font-bold hover:bg-green-700">
