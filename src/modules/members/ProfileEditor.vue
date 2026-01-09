@@ -173,6 +173,7 @@ const handleSave = async () => {
                 <option value="Associate">Associate</option>
                 <option value="Life">Lifetime</option>
                 <option value="Inactive">Inactive</option>
+                <option value="Nonmember">Nonmember</option>
               </select>
             </div>
 

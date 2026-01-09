@@ -316,13 +316,13 @@ watch(() => props.user, fetchProfile, { immediate: true })
                  <div>
                    <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Member Type</label>
                    <select v-model="editForm.membershipType" class="w-full border border-red-200 rounded p-2 bg-white text-sm">
-                     <option value="Regular">Regular</option>
-                     <option value="Household">Household</option>
-                     <option value="Student">Student</option>
-                     <option value="Junior">Junior</option>
-                     <option value="Lifetime">Lifetime</option>
-                     <option value="Honorary">Honorary</option>
-                     <option value="Associate">Associate</option>
+                <option value="Regular">Regular</option>
+                <option value="Household">Household</option>
+                <option value="Applicant">Applicant</option>
+                <option value="Associate">Associate</option>
+                <option value="Life">Lifetime</option>
+                <option value="Inactive">Inactive</option>
+                <option value="Nonmember">Nonmember</option>
                    </select>
                  </div>
                  <div>
